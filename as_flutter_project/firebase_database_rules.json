@@ -1,0 +1,71 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid",
+
+        "sensors": {
+          ".read": true,
+          ".write": true
+        },
+        "devices": {
+          ".read": true,
+          ".write": true
+        },
+        "energy_data": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": ["timestamp"]
+        },
+        "esp32cam": {
+          ".read": true,
+          ".write": true
+        },
+        "camera_events": {
+          ".read": true,
+          ".write": true,
+          "$date": {
+            ".read": true,
+            ".write": true,
+            "motion": {
+              ".indexOn": ["timestamp"]
+            },
+            "timelapse": {
+              ".indexOn": ["timestamp"]
+            }
+          }
+        },
+        "alerts": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": ["timestamp"]
+        },
+        "notifications": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": ["timestamp"]
+        },
+        "timelapse": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": ["timestamp"]
+        },
+        "motion_events": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": ["timestamp"]
+        }
+      }
+    },
+    "devices": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "sensor_data": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}
+
