@@ -18,40 +18,12 @@
           ".write": true,
           ".indexOn": ["timestamp"]
         },
-        "esp32cam": {
-          ".read": true,
-          ".write": true
-        },
-        "camera_events": {
-          ".read": true,
-          ".write": true,
-          "$date": {
-            ".read": true,
-            ".write": true,
-            "motion": {
-              ".indexOn": ["timestamp"]
-            },
-            "timelapse": {
-              ".indexOn": ["timestamp"]
-            }
-          }
-        },
         "alerts": {
           ".read": true,
           ".write": true,
           ".indexOn": ["timestamp"]
         },
         "notifications": {
-          ".read": true,
-          ".write": true,
-          ".indexOn": ["timestamp"]
-        },
-        "timelapse": {
-          ".read": true,
-          ".write": true,
-          ".indexOn": ["timestamp"]
-        },
-        "motion_events": {
           ".read": true,
           ".write": true,
           ".indexOn": ["timestamp"]

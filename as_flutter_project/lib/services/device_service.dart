@@ -35,16 +35,16 @@ class Device {
       pin: json['pin'],
       topic: json['topic'],
       createdAt: json['created_at'] != null
-        ? DateTime.parse(json['created_at'])
-        : DateTime.now(),
-      lastSeen: json['last_seen'] != null
-        ? DateTime.parse(json['last_seen'])
-        : null,
+          ? DateTime.parse(json['created_at'])
+          : DateTime.now(),
+      lastSeen:
+          json['last_seen'] != null ? DateTime.parse(json['last_seen']) : null,
     );
   }
 
   @override
-  String toString() => 'Device(id: $id, name: $name, isOnline: $isOnline, status: $status)';
+  String toString() =>
+      'Device(id: $id, name: $name, isOnline: $isOnline, status: $status)';
 }
 
 /// Device control response
@@ -84,7 +84,7 @@ class DeviceService extends ApiService {
       '/devices/list',
       parser: (data) {
         if (data == null || data is! List) return [];
-        return (data as List)
+        return (data)
             .map((item) => Device.fromJson(item as Map<String, dynamic>))
             .toList();
       },
@@ -175,7 +175,8 @@ class DeviceService extends ApiService {
   }
 
   /// Delete device
-  Future<ApiResponse<Map<String, dynamic>>> deleteDevice(String deviceId) async {
+  Future<ApiResponse<Map<String, dynamic>>> deleteDevice(
+      String deviceId) async {
     return deleteRequest(
       '/devices/$deviceId',
       parser: (data) {
@@ -203,14 +204,14 @@ class DeviceService extends ApiService {
   }
 
   /// Get device activity logs
-  Future<ApiResponse<List<Map<String, dynamic>>>> getDeviceLogs(String deviceId) async {
+  Future<ApiResponse<List<Map<String, dynamic>>>> getDeviceLogs(
+      String deviceId) async {
     return getRequest(
       '/logs/device/$deviceId',
       parser: (data) {
         if (data == null || data is! List) return [];
-        return (data as List).map((item) => item as Map<String, dynamic>).toList();
+        return (data).map((item) => item as Map<String, dynamic>).toList();
       },
     );
   }
 }
-

@@ -48,7 +48,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
     try {
       // Call backend password reset endpoint
-      final response = await _authService.requestPasswordReset(_emailController.text);
+      final response =
+          await _authService.requestPasswordReset(_emailController.text);
 
       if (response != null && response['success']) {
         setState(() => emailSent = true);
@@ -174,7 +175,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           width: 80,
           height: 80,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
+            color: Colors.white.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(20),
           ),
           child: const Icon(
@@ -189,9 +190,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         Text(
           'Forgot Password?',
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
         ),
         const SizedBox(height: 10),
 
@@ -200,8 +201,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           'Enter your email address and we\'ll send you a link to reset your password.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Colors.white70,
-          ),
+                color: Colors.white70,
+              ),
         ),
         const SizedBox(height: 40),
 
@@ -212,7 +213,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             borderRadius: BorderRadius.circular(15),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black.withValues(alpha: 0.1),
                 blurRadius: 10,
                 offset: const Offset(0, 5),
               ),
@@ -296,7 +297,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           width: 100,
           height: 100,
           decoration: BoxDecoration(
-            color: Colors.greenAccent.withOpacity(0.3),
+            color: Colors.greenAccent.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(30),
           ),
           child: const Icon(
@@ -311,9 +312,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         Text(
           'Check Your Email!',
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
         ),
         const SizedBox(height: 15),
 
@@ -322,8 +323,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           'We\'ve sent a password reset link to:\n${_emailController.text}',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Colors.white70,
-          ),
+                color: Colors.white70,
+              ),
         ),
         const SizedBox(height: 30),
 
@@ -331,10 +332,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
+            color: Colors.white.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
             ),
           ),
           child: const Text(
@@ -408,7 +409,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           width: 80,
           height: 80,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
+            color: Colors.white.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(20),
           ),
           child: const Icon(
@@ -423,9 +424,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         Text(
           'Set New Password',
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
         ),
         const SizedBox(height: 10),
 
@@ -434,8 +435,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           'Enter your new password below.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Colors.white70,
-          ),
+                color: Colors.white70,
+              ),
         ),
         const SizedBox(height: 40),
 
@@ -446,7 +447,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             borderRadius: BorderRadius.circular(15),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black.withValues(alpha: 0.1),
                 blurRadius: 10,
                 offset: const Offset(0, 5),
               ),
@@ -463,7 +464,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                   _obscurePassword ? Icons.visibility_off : Icons.visibility,
                   color: Colors.grey,
                 ),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(
@@ -483,7 +485,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             borderRadius: BorderRadius.circular(15),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black.withValues(alpha: 0.1),
                 blurRadius: 10,
                 offset: const Offset(0, 5),
               ),
@@ -500,7 +502,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                   _obscureConfirm ? Icons.visibility_off : Icons.visibility,
                   color: Colors.grey,
                 ),
-                onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                onPressed: () =>
+                    setState(() => _obscureConfirm = !_obscureConfirm),
               ),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(
@@ -551,7 +554,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
         // Back Button
         TextButton(
-          onPressed: isLoading ? null : () => setState(() => settingNewPassword = false),
+          onPressed: isLoading
+              ? null
+              : () => setState(() => settingNewPassword = false),
           child: const Text(
             'Back',
             style: TextStyle(

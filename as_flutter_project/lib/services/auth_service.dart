@@ -11,7 +11,23 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 
 class AuthService {
   String get _baseUrl => ConfigService().backendUrl;
-  
+
+  String _normalizeNetworkError(Object error) {
+    final message = error.toString();
+
+    if (message.contains('ClientException') ||
+        message.contains('Failed to fetch') ||
+        message.contains('SocketException')) {
+      return 'Backend server is unavailable or the API URL is incorrect. Please check the backend configuration or start the backend service.';
+    }
+
+    if (message.contains('timed out')) {
+      return 'The backend request timed out. Please check the server and internet connection.';
+    }
+
+    return message;
+  }
+
   String? _currentUserId;
   String? _currentUserEmail;
   String? _currentUserName;
@@ -44,20 +60,33 @@ class AuthService {
   }
 
   // Email/Password Registration - Updated for new backend
-  Future<Map<String, dynamic>?> signUpWithEmail(String email, String password, String name) async {
+  Future<Map<String, dynamic>?> signUpWithEmail(
+      String email, String password, String name) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/register'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'email': email,
-          'password': password,
-          'name': name,
-        }),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Registration request timed out'),
-      );
+      final backend = ConfigService();
+      if (!backend.hasValidBackendUrl) {
+        return {
+          'success': false,
+          'error':
+              'Backend URL is not configured. Please set a valid backend URL before signing up.'
+        };
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/auth/register'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'email': email,
+              'password': password,
+              'name': name,
+            }),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () =>
+                throw TimeoutException('Registration request timed out'),
+          );
 
       dynamic data;
       try {
@@ -69,33 +98,49 @@ class AuthService {
       if (response.statusCode == 200) {
         // Don't auto-login on registration, just return success message
         return {
-          'success': true, 
-          'message': 'Account created successfully! Please login with your credentials.',
+          'success': true,
+          'message':
+              'Account created successfully! Please login with your credentials.',
           'user': data['user']
         };
       } else {
-        return {'success': false, 'error': _extractErrorMessage(data, 'Registration failed')};
+        return {
+          'success': false,
+          'error': _extractErrorMessage(data, 'Registration failed')
+        };
       }
     } catch (e) {
       debugPrint('Sign up error: $e');
-      return {'success': false, 'error': 'Network error: ${e.toString()}'};
+      return {'success': false, 'error': _normalizeNetworkError(e)};
     }
   }
 
   // Email/Password Sign In - Updated for new backend
-  Future<Map<String, dynamic>?> signInWithEmail(String email, String password) async {
+  Future<Map<String, dynamic>?> signInWithEmail(
+      String email, String password) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'email': email,
-          'password': password,
-        }),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Login request timed out'),
-      );
+      final backend = ConfigService();
+      if (!backend.hasValidBackendUrl) {
+        return {
+          'success': false,
+          'error':
+              'Backend URL is not configured. Please set a valid backend URL before signing in.'
+        };
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/auth/login'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'email': email,
+              'password': password,
+            }),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException('Login request timed out'),
+          );
 
       dynamic data;
       try {
@@ -115,25 +160,31 @@ class AuthService {
 
         return {'success': true, 'user': data['user']};
       } else {
-        return {'success': false, 'error': _extractErrorMessage(data, 'Sign in failed')};
+        return {
+          'success': false,
+          'error': _extractErrorMessage(data, 'Sign in failed')
+        };
       }
     } catch (e) {
       debugPrint('Sign in error: $e');
-      return {'success': false, 'error': e.toString()};
+      return {'success': false, 'error': _normalizeNetworkError(e)};
     }
   }
 
   // Password Reset Request
   Future<Map<String, dynamic>?> requestPasswordReset(String email) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/password-reset'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'email': email}),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Password reset request timed out'),
-      );
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/auth/password-reset'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'email': email}),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () =>
+                throw TimeoutException('Password reset request timed out'),
+          );
 
       dynamic data;
       try {
@@ -163,18 +214,23 @@ class AuthService {
   // Verify Password Reset Token
   Future<Map<String, dynamic>?> verifyResetToken(String token) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/password-reset/verify'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'token': token}),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/auth/password-reset/verify'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'token': token}),
+          )
+          .timeout(const Duration(seconds: 10));
 
       final data = json.decode(response.body);
 
       if (response.statusCode == 200) {
         return {'success': true, 'email': data['email']};
       } else {
-        return {'success': false, 'error': data['detail'] ?? 'Invalid or expired token'};
+        return {
+          'success': false,
+          'error': data['detail'] ?? 'Invalid or expired token'
+        };
       }
     } catch (e) {
       return {'success': false, 'error': e.toString()};
@@ -182,20 +238,26 @@ class AuthService {
   }
 
   // Reset Password with Token
-  Future<Map<String, dynamic>?> resetPassword(String token, String newPassword) async {
+  Future<Map<String, dynamic>?> resetPassword(
+      String token, String newPassword) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/password-reset/confirm'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'token': token, 'new_password': newPassword}),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/auth/password-reset/confirm'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'token': token, 'new_password': newPassword}),
+          )
+          .timeout(const Duration(seconds: 10));
 
       final data = json.decode(response.body);
 
       if (response.statusCode == 200) {
         return {'success': true, 'message': 'Password reset successfully'};
       } else {
-        return {'success': false, 'error': data['detail'] ?? 'Failed to reset password'};
+        return {
+          'success': false,
+          'error': data['detail'] ?? 'Failed to reset password'
+        };
       }
     } catch (e) {
       return {'success': false, 'error': e.toString()};
@@ -204,13 +266,16 @@ class AuthService {
 
   // Confirm password reset with email and new password
   // Used after user clicks the reset link in their email
-  Future<Map<String, dynamic>?> confirmPasswordReset(String email, String newPassword) async {
+  Future<Map<String, dynamic>?> confirmPasswordReset(
+      String email, String newPassword) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/password-reset/confirm'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'email': email, 'new_password': newPassword}),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/auth/password-reset/confirm'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'email': email, 'new_password': newPassword}),
+          )
+          .timeout(const Duration(seconds: 10));
 
       dynamic data;
       try {
@@ -241,21 +306,24 @@ class AuthService {
   Future<Map<String, dynamic>?> getCurrentUser() async {
     try {
       final headers = await getAuthHeaders();
-      
-      final response = await http.get(
-        Uri.parse('$_baseUrl/auth/user'),
-        headers: headers,
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Get user request timed out'),
-      );
-      
+
+      final response = await http
+          .get(
+            Uri.parse('$_baseUrl/auth/user'),
+            headers: headers,
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () =>
+                throw TimeoutException('Get user request timed out'),
+          );
+
       if (response.statusCode == 200) {
         final user = json.decode(response.body);
         _currentUserId = user['id'];
         _currentUserEmail = user['email'];
         _currentUserName = user['name'];
-        
+
         return {'success': true, 'user': user};
       } else {
         await _clearToken();
@@ -271,7 +339,7 @@ class AuthService {
   Future<Map<String, dynamic>?> signInWithGoogle() async {
     try {
       debugPrint('🔄 Starting Google OAuth flow...');
-      
+
       // For web: Use direct redirect to Google OAuth, then backend will handle it
       // For mobile: Use google_sign_in package (handled elsewhere)
       if (kIsWeb) {
@@ -289,7 +357,10 @@ class AuthService {
         final idToken = await user.getIdToken();
         if (idToken == null) {
           debugPrint('❌ Failed to get ID token from Firebase');
-          return {'success': false, 'error': 'Failed to obtain ID token from Firebase'};
+          return {
+            'success': false,
+            'error': 'Failed to obtain ID token from Firebase'
+          };
         }
 
         debugPrint('✅ Got Firebase ID token (length: ${idToken.length})');
@@ -297,13 +368,16 @@ class AuthService {
         // ⚠️ IMPORTANT: Google OAuth ALWAYS uses Heroku (requires HTTPS!)
         // Even if default backend is localhost, Google Sign-In must use production URL
         final googleOAuthUrl = ConfigService().getGoogleOAuthUrl();
-        debugPrint('🔄 Sending ID token to backend: $googleOAuthUrl/auth/google-signin');
+        debugPrint(
+            '🔄 Sending ID token to backend: $googleOAuthUrl/auth/google-signin');
 
-        final response = await http.post(
-          Uri.parse('$googleOAuthUrl/auth/google-signin'),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode({'id_token': idToken}),
-        ).timeout(const Duration(seconds: 10));
+        final response = await http
+            .post(
+              Uri.parse('$googleOAuthUrl/auth/google-signin'),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({'id_token': idToken}),
+            )
+            .timeout(const Duration(seconds: 10));
 
         debugPrint('📊 Backend response status: ${response.statusCode}');
         debugPrint('📦 Backend response body: ${response.body}');
@@ -318,9 +392,12 @@ class AuthService {
 
         if (response.statusCode == 200) {
           // Backend may require 2FA
-          if ((data is Map && (data['requires_2fa'] == true || data['requires2fa'] == true))) {
-            final emailFromBackend = (data['user'] is Map) ? data['user']['email'] : null;
-            debugPrint('🔐 2FA Required for: ${emailFromBackend ?? user.email}');
+          if ((data is Map &&
+              (data['requires_2fa'] == true || data['requires2fa'] == true))) {
+            final emailFromBackend =
+                (data['user'] is Map) ? data['user']['email'] : null;
+            debugPrint(
+                '🔐 2FA Required for: ${emailFromBackend ?? user.email}');
             return {
               'success': true,
               'requires2FA': true,
@@ -331,11 +408,13 @@ class AuthService {
 
           // No 2FA - backend may return a token
           // Try multiple key names for flexibility
-          final tokenCandidate = data['token'] ?? data['access_token'] ?? data['accessToken'] ?? null;
+          final tokenCandidate =
+              data['token'] ?? data['access_token'] ?? data['accessToken'];
 
           if (tokenCandidate != null) {
             final tokenStr = tokenCandidate.toString();
-            debugPrint('🔑 Backend returned token (length: ${tokenStr.length})');
+            debugPrint(
+                '🔑 Backend returned token (length: ${tokenStr.length})');
 
             // Store token directly without fetching user (we already have user data from backend)
             try {
@@ -345,7 +424,8 @@ class AuthService {
               // Update current user from the response data
               if (data['user'] != null && data['user'] is Map) {
                 _currentUserId = data['user']['uid']?.toString() ?? user.uid;
-                _currentUserEmail = data['user']['email']?.toString() ?? user.email;
+                _currentUserEmail =
+                    data['user']['email']?.toString() ?? user.email;
                 _currentUserName = data['user']['name']?.toString();
                 debugPrint('✅ User data updated from backend response');
               }
@@ -353,7 +433,8 @@ class AuthService {
               debugPrint('❌ Error storing token: $e');
             }
           } else {
-            debugPrint('⚠️ No token returned by backend. Response keys: ${data.keys}');
+            debugPrint(
+                '⚠️ No token returned by backend. Response keys: ${data.keys}');
           }
 
           return {
@@ -364,8 +445,12 @@ class AuthService {
             'message': data['message'] ?? 'Sign-in successful'
           };
         } else {
-          final errorMsg = data['detail'] ?? data['message'] ?? data['error'] ?? response.body;
-          debugPrint('❌ Backend returned error (${response.statusCode}): $errorMsg');
+          final errorMsg = data['detail'] ??
+              data['message'] ??
+              data['error'] ??
+              response.body;
+          debugPrint(
+              '❌ Backend returned error (${response.statusCode}): $errorMsg');
           return {'success': false, 'error': errorMsg.toString()};
         }
       }
@@ -385,7 +470,7 @@ class AuthService {
       _currentUserId = null;
       _currentUserEmail = null;
       _currentUserName = null;
-      
+
       // Clear token
       await _clearToken();
     } catch (e) {
@@ -402,7 +487,8 @@ class AuthService {
         // Force refresh to get a fresh token
         final idToken = await firebaseUser.getIdToken(true);
         if (idToken != null && idToken.isNotEmpty) {
-          debugPrint('🔑 Got fresh Firebase ID token (length: ${idToken.length})');
+          debugPrint(
+              '🔑 Got fresh Firebase ID token (length: ${idToken.length})');
           // Also update stored token
           await _storeToken(idToken);
           return idToken;
@@ -453,7 +539,7 @@ class AuthService {
 
   Future<Map<String, String>> getAuthHeaders() async {
     final token = await getAccessToken();
-    
+
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
@@ -462,33 +548,37 @@ class AuthService {
 
   // ESP32 Device Registration - Updated for new backend
   Future<Map<String, dynamic>?> registerESP32Device(
-    String deviceName, 
-    String macAddress, 
-    {String? ipAddress, String? locationName}
-  ) async {
+      String deviceName, String macAddress,
+      {String? ipAddress, String? locationName}) async {
     try {
       final headers = await getAuthHeaders();
-      
-      final response = await http.post(
-        Uri.parse('$_baseUrl/devices/register'),
-        headers: headers,
-        body: json.encode({
-          'device_name': deviceName,
-          'esp32_mac': macAddress,
-          'location': locationName,
-          'device_type': 'esp32',
-        }),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Device registration request timed out'),
-      );
-      
+
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/devices/register'),
+            headers: headers,
+            body: json.encode({
+              'device_name': deviceName,
+              'esp32_mac': macAddress,
+              'location': locationName,
+              'device_type': 'esp32',
+            }),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () =>
+                throw TimeoutException('Device registration request timed out'),
+          );
+
       final data = json.decode(response.body);
-      
+
       if (response.statusCode == 200) {
         return {'success': true, 'device_id': data['device_id']};
       } else {
-        return {'success': false, 'error': data['detail'] ?? 'Device registration failed'};
+        return {
+          'success': false,
+          'error': data['detail'] ?? 'Device registration failed'
+        };
       }
     } catch (e) {
       debugPrint('ESP32 device registration error: $e');
@@ -500,17 +590,20 @@ class AuthService {
   Future<Map<String, dynamic>?> configureESP32Device(String deviceId) async {
     try {
       final headers = await getAuthHeaders();
-      
-      final response = await http.post(
-        Uri.parse('$_baseUrl/devices/$deviceId/configure'),
-        headers: headers,
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Device configuration request timed out'),
-      );
-      
+
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/devices/$deviceId/configure'),
+            headers: headers,
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException(
+                'Device configuration request timed out'),
+          );
+
       final data = json.decode(response.body);
-      
+
       if (response.statusCode == 200) {
         return {
           'success': true,
@@ -539,21 +632,25 @@ class AuthService {
     try {
       final headers = await getAuthHeaders();
 
-      debugPrint('📤 Registering device: name=$deviceName, mqttClientId=$mqttClientId');
+      debugPrint(
+          '📤 Registering device: name=$deviceName, mqttClientId=$mqttClientId');
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/devices/register'),
-        headers: headers,
-        body: json.encode({
-          'device_name': deviceName,
-          'mqtt_client_id': mqttClientId,
-          'location': location ?? '',
-          'device_type': deviceType,
-        }),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Device registration request timed out'),
-      );
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/devices/register'),
+            headers: headers,
+            body: json.encode({
+              'device_name': deviceName,
+              'mqtt_client_id': mqttClientId,
+              'location': location ?? '',
+              'device_type': deviceType,
+            }),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () =>
+                throw TimeoutException('Device registration request timed out'),
+          );
 
       debugPrint('📊 Register response status: ${response.statusCode}');
       debugPrint('📦 Register response body: ${response.body}');
@@ -574,12 +671,9 @@ class AuthService {
         };
       } else {
         String errorMsg = data['detail']?.toString() ??
-                         data['message']?.toString() ??
-                         'Device registration failed (${response.statusCode})';
-        return {
-          'success': false,
-          'error': errorMsg
-        };
+            data['message']?.toString() ??
+            'Device registration failed (${response.statusCode})';
+        return {'success': false, 'error': errorMsg};
       }
     } catch (e) {
       debugPrint('❌ Device registration error: $e');
@@ -625,12 +719,9 @@ class AuthService {
       } else {
         final data = json.decode(response.body);
         String errorMsg = data['detail']?.toString() ??
-                         data['message']?.toString() ??
-                         'Device deletion failed (${response.statusCode})';
-        return {
-          'success': false,
-          'error': errorMsg
-        };
+            data['message']?.toString() ??
+            'Device deletion failed (${response.statusCode})';
+        return {'success': false, 'error': errorMsg};
       }
     } catch (e) {
       debugPrint('❌ Device deletion error: $e');
@@ -646,22 +737,26 @@ class AuthService {
   }) async {
     try {
       final headers = await getAuthHeaders();
-      
-      debugPrint('📤 Sending control to backend: device=$device_id, pin=$pin_number, action=$action');
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/devices/control'),
-        headers: headers,
-        body: json.encode({
-          'device_id': device_id,
-          'pin_number': pin_number,
-          'action': action,
-        }),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Device control request timed out'),
-      );
-      
+      debugPrint(
+          '📤 Sending control to backend: device=$device_id, pin=$pin_number, action=$action');
+
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/devices/control'),
+            headers: headers,
+            body: json.encode({
+              'device_id': device_id,
+              'pin_number': pin_number,
+              'action': action,
+            }),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () =>
+                throw TimeoutException('Device control request timed out'),
+          );
+
       debugPrint('📊 Control response status: ${response.statusCode}');
       debugPrint('📦 Control response body: ${response.body}');
 
@@ -683,15 +778,12 @@ class AuthService {
         String errorMsg = 'Device control failed';
         if (data is Map) {
           errorMsg = data['detail']?.toString() ??
-                     data['message']?.toString() ??
-                     data['error']?.toString() ??
-                     'Device control failed (${response.statusCode})';
+              data['message']?.toString() ??
+              data['error']?.toString() ??
+              'Device control failed (${response.statusCode})';
         }
         debugPrint('❌ Control error: $errorMsg');
-        return {
-          'success': false,
-          'error': errorMsg
-        };
+        return {'success': false, 'error': errorMsg};
       }
     } catch (e) {
       debugPrint('❌ Device control exception: $e');
@@ -701,35 +793,37 @@ class AuthService {
 
   // Store sensor reading
   Future<Map<String, dynamic>?> storeSensorReading(
-    String deviceId,
-    String sensorType, 
-    int pinNumber, 
-    double value,
-    {String unit = 'V', String quality = 'good'}
-  ) async {
+      String deviceId, String sensorType, int pinNumber, double value,
+      {String unit = 'V', String quality = 'good'}) async {
     try {
       final headers = await getAuthHeaders();
-      
-      final response = await http.post(
-        Uri.parse('$_baseUrl/sensors/data'),
-        headers: headers,
-        body: json.encode({
-          'device_id': deviceId,
-          'sensor_type': sensorType,
-          'value': value,
-          'unit': unit,
-        }),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Store sensor reading request timed out'),
-      );
-      
+
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/sensors/data'),
+            headers: headers,
+            body: json.encode({
+              'device_id': deviceId,
+              'sensor_type': sensorType,
+              'value': value,
+              'unit': unit,
+            }),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException(
+                'Store sensor reading request timed out'),
+          );
+
       final data = json.decode(response.body);
-      
+
       if (response.statusCode == 200) {
         return {'success': true, 'message': data['message']};
       } else {
-        return {'success': false, 'error': data['detail'] ?? 'Failed to store sensor reading'};
+        return {
+          'success': false,
+          'error': data['detail'] ?? 'Failed to store sensor reading'
+        };
       }
     } catch (e) {
       debugPrint('Store sensor reading error: $e');
@@ -738,19 +832,23 @@ class AuthService {
   }
 
   // Get latest sensor readings
-  Future<List<Map<String, dynamic>>> getLatestSensorReadings({String? deviceId}) async {
+  Future<List<Map<String, dynamic>>> getLatestSensorReadings(
+      {String? deviceId}) async {
     try {
       final headers = await getAuthHeaders();
       String url = '$_baseUrl/sensors/device/${deviceId ?? "all"}/latest';
-      
-      final response = await http.get(
-        Uri.parse(url),
-        headers: headers,
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Get sensor readings request timed out'),
-      );
-      
+
+      final response = await http
+          .get(
+            Uri.parse(url),
+            headers: headers,
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () =>
+                throw TimeoutException('Get sensor readings request timed out'),
+          );
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         return data.map((reading) => reading as Map<String, dynamic>).toList();
@@ -826,7 +924,8 @@ class AuthService {
       if (logType != null) queryParams['log_type'] = logType;
       if (severity != null) queryParams['severity'] = severity;
 
-      final uri = Uri.parse('$_baseUrl/logs/list').replace(queryParameters: queryParams);
+      final uri = Uri.parse('$_baseUrl/logs/list')
+          .replace(queryParameters: queryParams);
 
       final response = await http.get(
         uri,
@@ -933,20 +1032,22 @@ class AuthService {
       final token = await getAccessToken();
       if (token == null) return false;
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/logs/create'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'log_type': logType,
-          'message': message,
-          if (deviceId != null) 'device_id': deviceId,
-          if (details != null) 'details': details,
-          'severity': severity,
-        }),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/logs/create'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: json.encode({
+              'log_type': logType,
+              'message': message,
+              if (deviceId != null) 'device_id': deviceId,
+              if (details != null) 'details': details,
+              'severity': severity,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
 
       return response.statusCode == 200;
     } catch (e) {
@@ -996,7 +1097,8 @@ class AuthService {
       };
 
       final response = await http.get(
-        Uri.parse('$_baseUrl/alerts/list').replace(queryParameters: queryParams),
+        Uri.parse('$_baseUrl/alerts/list')
+            .replace(queryParameters: queryParams),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
 
@@ -1071,19 +1173,22 @@ class AuthService {
     }
   }
 
-  Future<Map<String, dynamic>?> updateUserProfile(String name, String email) async {
+  Future<Map<String, dynamic>?> updateUserProfile(
+      String name, String email) async {
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/settings/profile/update'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({'name': name, 'email': email}),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/settings/profile/update'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: json.encode({'name': name, 'email': email}),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -1104,18 +1209,20 @@ class AuthService {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/settings/password/change'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'current_password': currentPassword,
-          'new_password': newPassword,
-          'confirm_password': confirmPassword,
-        }),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/settings/password/change'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: json.encode({
+              'current_password': currentPassword,
+              'new_password': newPassword,
+              'confirm_password': confirmPassword,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -1148,19 +1255,22 @@ class AuthService {
     }
   }
 
-  Future<Map<String, dynamic>?> updateUserPreferences(Map<String, dynamic> preferences) async {
+  Future<Map<String, dynamic>?> updateUserPreferences(
+      Map<String, dynamic> preferences) async {
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/settings/preferences/update'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode(preferences),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/settings/preferences/update'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: json.encode(preferences),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -1208,16 +1318,10 @@ class AuthService {
       // Clear local storage
       await logout();
 
-      return {
-        'success': true,
-        'message': 'Account deleted successfully'
-      };
+      return {'success': true, 'message': 'Account deleted successfully'};
     } catch (e) {
       debugPrint('❌ Delete account error: $e');
-      return {
-        'success': false,
-        'error': e.toString()
-      };
+      return {'success': false, 'error': e.toString()};
     }
   }
 
@@ -1247,20 +1351,25 @@ class AuthService {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/settings/2fa/enable'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({'email': email}),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/settings/2fa/enable'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: json.encode({'email': email}),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
       } else {
         final error = json.decode(response.body);
-        return {'success': false, 'error': error['detail'] ?? 'Failed to enable 2FA'};
+        return {
+          'success': false,
+          'error': error['detail'] ?? 'Failed to enable 2FA'
+        };
       }
     } catch (e) {
       debugPrint('Enable 2FA error: $e');
@@ -1273,14 +1382,16 @@ class AuthService {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/settings/2fa/verify'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({'code': code}),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/settings/2fa/verify'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: json.encode({'code': code}),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -1299,20 +1410,25 @@ class AuthService {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/settings/2fa/disable'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({'password': password}),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/settings/2fa/disable'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: json.encode({'password': password}),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
       } else {
         final error = json.decode(response.body);
-        return {'success': false, 'error': error['detail'] ?? 'Failed to disable 2FA'};
+        return {
+          'success': false,
+          'error': error['detail'] ?? 'Failed to disable 2FA'
+        };
       }
     } catch (e) {
       debugPrint('Disable 2FA error: $e');
@@ -1324,25 +1440,33 @@ class AuthService {
   Future<Map<String, dynamic>?> registerDeviceFor2FA() async {
     try {
       final token = await getAccessToken();
-      if (token == null) return {'success': false, 'error': 'Not authenticated'};
+      if (token == null) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/devices/register'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'device_name': 'flutter_web_${DateTime.now().millisecondsSinceEpoch}',
-          'location': 'Web Browser',
-        }),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/devices/register'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+            body: json.encode({
+              'device_name':
+                  'flutter_web_${DateTime.now().millisecondsSinceEpoch}',
+              'location': 'Web Browser',
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return json.decode(response.body);
       } else {
         final error = json.decode(response.body);
-        return {'success': false, 'error': error['detail'] ?? 'Failed to register device'};
+        return {
+          'success': false,
+          'error': error['detail'] ?? 'Failed to register device'
+        };
       }
     } catch (e) {
       debugPrint('Device registration error: $e');
@@ -1351,16 +1475,19 @@ class AuthService {
   }
 
   // Verify OTP for device trust
-  Future<Map<String, dynamic>?> verifyDeviceOTP(String deviceId, String otp) async {
+  Future<Map<String, dynamic>?> verifyDeviceOTP(
+      String deviceId, String otp) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/devices/verify-otp'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'device_id': deviceId,
-          'otp': otp,
-        }),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/devices/verify-otp'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'device_id': deviceId,
+              'otp': otp,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
 
       final data = json.decode(response.body);
 
@@ -1369,17 +1496,20 @@ class AuthService {
         if (data['access_token'] != null) {
           await _storeToken(data['access_token']);
         }
-        
+
         // Update user info if provided
         if (data['user'] != null) {
           _currentUserId = data['user']['id'];
           _currentUserEmail = data['user']['email'];
           _currentUserName = data['user']['name'];
         }
-        
+
         return {'success': true, 'message': 'Device verified successfully'};
       } else {
-        return {'success': false, 'error': data['detail'] ?? 'OTP verification failed'};
+        return {
+          'success': false,
+          'error': data['detail'] ?? 'OTP verification failed'
+        };
       }
     } catch (e) {
       debugPrint('OTP verification error: $e');

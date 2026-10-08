@@ -29,8 +29,8 @@ class SensorReading {
       value: (json['value'] ?? 0).toDouble(),
       unit: json['unit'] ?? '',
       timestamp: json['timestamp'] != null
-        ? DateTime.parse(json['timestamp'])
-        : DateTime.now(),
+          ? DateTime.parse(json['timestamp'])
+          : DateTime.now(),
       metadata: json['metadata'] as Map<String, dynamic>?,
     );
   }
@@ -64,11 +64,11 @@ class SensorStats {
       average: (json['average'] ?? 0).toDouble(),
       readingCount: json['reading_count'] ?? 0,
       startTime: json['start_time'] != null
-        ? DateTime.parse(json['start_time'])
-        : DateTime.now(),
+          ? DateTime.parse(json['start_time'])
+          : DateTime.now(),
       endTime: json['end_time'] != null
-        ? DateTime.parse(json['end_time'])
-        : DateTime.now(),
+          ? DateTime.parse(json['end_time'])
+          : DateTime.now(),
     );
   }
 }
@@ -108,7 +108,7 @@ class SensorService extends ApiService {
       '/sensors/device/$deviceId',
       parser: (data) {
         if (data == null || data is! List) return [];
-        return (data as List)
+        return (data)
             .map((item) => SensorReading.fromJson(item as Map<String, dynamic>))
             .toList();
       },
@@ -150,7 +150,7 @@ class SensorService extends ApiService {
       '/sensors/all',
       parser: (data) {
         if (data == null || data is! List) return [];
-        return (data as List)
+        return (data)
             .map((item) => SensorReading.fromJson(item as Map<String, dynamic>))
             .toList();
       },
@@ -194,4 +194,3 @@ class SensorService extends ApiService {
     );
   }
 }
-

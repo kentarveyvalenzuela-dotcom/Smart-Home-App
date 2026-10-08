@@ -71,7 +71,6 @@ MQTT_PORT=8883
 ESP32 firmware files are located in `scripts/`:
 - `esp32_mqtt.ino` - Main MQTT communication firmware
 - `esp32_mqtt_production.ino` - Production-ready firmware
-- `esp32cam_upload.ino` - Camera module support
 - `wifi_config_template.h` - WiFi configuration template
 
 ## 📱 Features

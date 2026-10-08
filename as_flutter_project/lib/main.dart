@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'screens/auth_page.dart';
-import 'screens/monitor_page.dart';
 import 'screens/home_screen.dart';
 import 'services/mqtt_service.dart';
 import 'services/firebase_database_service.dart';
@@ -62,7 +61,7 @@ void main() async {
 
   // Load runtime config (backend URL, etc.)
   await ConfigService().initialize();
-  
+
   // Initialize connectivity monitoring
   await ConnectivityService().initialize();
 
@@ -75,11 +74,11 @@ void main() async {
   } catch (e) {
     debugPrint('⚠️ Firebase initialization error: $e');
   }
-  
+
   // Initialize Firebase Realtime Database
   debugPrint('🔥 Initializing Firebase Realtime Database...');
   await FirebaseDbService().initialize();
-  
+
   // Initialize Notification Service
   debugPrint('📢 Initializing Notification Service...');
   await NotificationService().initialize();
@@ -90,8 +89,9 @@ void main() async {
     debugPrint('⚠️ MQTT initialization error (non-blocking): $e');
   });
 
-  // If web and an OAuth token exists in the URL (callback), store it and auto-login
-  String initialRoute = '/';
+  // Default app startup goes directly to the dashboard to bypass the login gate.
+  // The login page remains available under /login if needed.
+  String initialRoute = '/home';
   if (kIsWeb) {
     try {
       final params = Uri.base.queryParameters;
@@ -118,154 +118,158 @@ class MyApp extends StatelessWidget {
   final String initialRoute;
   const MyApp({super.key, this.initialRoute = '/'});
 
-   @override
-   Widget build(BuildContext context) {
-     return ValueListenableBuilder<ThemeMode>(
-       valueListenable: themeNotifier,
-       builder: (_, ThemeMode currentMode, __) {
-         return MaterialApp(
-           debugShowCheckedModeBanner: false,
-           title: 'Smart Home IoT',
-           theme: ThemeData(
-             useMaterial3: true,
-             brightness: Brightness.light,
-             colorScheme: ColorScheme.light(
-               primary: AppColors.primaryBlueDark,
-               secondary: AppColors.electricOrange,
-               surface: AppColors.lightBgCard,
-               onPrimary: Colors.white,
-               onSecondary: Colors.white,
-             ),
-             scaffoldBackgroundColor: AppColors.lightBg,
-             appBarTheme: AppBarTheme(
-               elevation: 0,
-               centerTitle: true,
-               backgroundColor: AppColors.darkBg,
-               foregroundColor: Colors.white,
-               titleTextStyle: const TextStyle(
-                 fontSize: 18,
-                 fontWeight: FontWeight.w600,
-                 letterSpacing: 0.5,
-               ),
-             ),
-             cardTheme: CardThemeData(
-               elevation: 4,
-               shadowColor: AppColors.primaryBlue.withOpacity(0.2),
-               shape: RoundedRectangleBorder(
-                 borderRadius: BorderRadius.circular(16),
-               ),
-             ),
-             bottomNavigationBarTheme: BottomNavigationBarThemeData(
-               backgroundColor: AppColors.darkBg,
-               selectedItemColor: AppColors.primaryBlue,
-               unselectedItemColor: Colors.grey.shade500,
-               type: BottomNavigationBarType.fixed,
-               elevation: 8,
-             ),
-             floatingActionButtonTheme: FloatingActionButtonThemeData(
-               backgroundColor: AppColors.primaryBlue,
-               foregroundColor: Colors.white,
-               elevation: 6,
-             ),
-             inputDecorationTheme: InputDecorationTheme(
-               filled: true,
-               fillColor: Colors.grey.shade100,
-               border: OutlineInputBorder(
-                 borderRadius: BorderRadius.circular(12),
-                 borderSide: BorderSide.none,
-               ),
-               focusedBorder: OutlineInputBorder(
-                 borderRadius: BorderRadius.circular(12),
-                 borderSide: const BorderSide(color: AppColors.primaryBlue, width: 2),
-               ),
-             ),
-             elevatedButtonTheme: ElevatedButtonThemeData(
-               style: ElevatedButton.styleFrom(
-                 backgroundColor: AppColors.primaryBlue,
-                 foregroundColor: Colors.white,
-                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                 shape: RoundedRectangleBorder(
-                   borderRadius: BorderRadius.circular(12),
-                 ),
-                 elevation: 4,
-               ),
-             ),
-           ),
-           darkTheme: ThemeData(
-             useMaterial3: true,
-             brightness: Brightness.dark,
-             colorScheme: ColorScheme.dark(
-               primary: AppColors.primaryBlue,
-               secondary: AppColors.electricOrange,
-               surface: AppColors.darkBgCard,
-               onPrimary: Colors.white,
-               onSecondary: Colors.white,
-             ),
-             scaffoldBackgroundColor: AppColors.darkBg,
-             appBarTheme: const AppBarTheme(
-               elevation: 0,
-               centerTitle: true,
-               backgroundColor: AppColors.darkBgSecondary,
-               foregroundColor: Colors.white,
-               titleTextStyle: TextStyle(
-                 fontSize: 18,
-                 fontWeight: FontWeight.w600,
-                 letterSpacing: 0.5,
-               ),
-             ),
-             cardTheme: CardThemeData(
-               elevation: 4,
-               color: AppColors.darkBgCard,
-               shadowColor: AppColors.primaryBlue.withOpacity(0.3),
-               shape: RoundedRectangleBorder(
-                 borderRadius: BorderRadius.circular(16),
-               ),
-             ),
-             bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-               backgroundColor: AppColors.darkBgSecondary,
-               selectedItemColor: AppColors.primaryBlue,
-               unselectedItemColor: Colors.grey,
-               type: BottomNavigationBarType.fixed,
-               elevation: 8,
-             ),
-             floatingActionButtonTheme: const FloatingActionButtonThemeData(
-               backgroundColor: AppColors.primaryBlue,
-               foregroundColor: Colors.white,
-               elevation: 6,
-             ),
-             inputDecorationTheme: InputDecorationTheme(
-               filled: true,
-               fillColor: AppColors.darkBgSecondary,
-               border: OutlineInputBorder(
-                 borderRadius: BorderRadius.circular(12),
-                 borderSide: BorderSide.none,
-               ),
-               focusedBorder: OutlineInputBorder(
-                 borderRadius: BorderRadius.circular(12),
-                 borderSide: const BorderSide(color: AppColors.primaryBlue, width: 2),
-               ),
-             ),
-             elevatedButtonTheme: ElevatedButtonThemeData(
-               style: ElevatedButton.styleFrom(
-                 backgroundColor: AppColors.primaryBlue,
-                 foregroundColor: Colors.white,
-                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                 shape: RoundedRectangleBorder(
-                   borderRadius: BorderRadius.circular(12),
-                 ),
-                 elevation: 4,
-               ),
-             ),
-           ),
-           themeMode: currentMode,
-           initialRoute: initialRoute == '/home' ? '/home' : '/',
-           routes: {
-             '/': (context) => const AuthPage(),
-             '/home': (context) => const HomeScreen(),
-             '/monitor': (context) => const MonitorPage(),
-           },
-         );
-       },
-     );
-   }
- }
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeNotifier,
+      builder: (_, ThemeMode currentMode, __) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Smart Home IoT',
+          theme: ThemeData(
+            useMaterial3: true,
+            brightness: Brightness.light,
+            colorScheme: ColorScheme.light(
+              primary: AppColors.primaryBlueDark,
+              secondary: AppColors.electricOrange,
+              surface: AppColors.lightBgCard,
+              onPrimary: Colors.white,
+              onSecondary: Colors.white,
+            ),
+            scaffoldBackgroundColor: AppColors.lightBg,
+            appBarTheme: AppBarTheme(
+              elevation: 0,
+              centerTitle: true,
+              backgroundColor: AppColors.darkBg,
+              foregroundColor: Colors.white,
+              titleTextStyle: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+            cardTheme: CardThemeData(
+              elevation: 4,
+              shadowColor: AppColors.primaryBlue.withOpacity(0.2),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            bottomNavigationBarTheme: BottomNavigationBarThemeData(
+              backgroundColor: AppColors.darkBg,
+              selectedItemColor: AppColors.primaryBlue,
+              unselectedItemColor: Colors.grey.shade500,
+              type: BottomNavigationBarType.fixed,
+              elevation: 8,
+            ),
+            floatingActionButtonTheme: FloatingActionButtonThemeData(
+              backgroundColor: AppColors.primaryBlue,
+              foregroundColor: Colors.white,
+              elevation: 6,
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: Colors.grey.shade100,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide:
+                    const BorderSide(color: AppColors.primaryBlue, width: 2),
+              ),
+            ),
+            elevatedButtonTheme: ElevatedButtonThemeData(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryBlue,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 4,
+              ),
+            ),
+          ),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            brightness: Brightness.dark,
+            colorScheme: ColorScheme.dark(
+              primary: AppColors.primaryBlue,
+              secondary: AppColors.electricOrange,
+              surface: AppColors.darkBgCard,
+              onPrimary: Colors.white,
+              onSecondary: Colors.white,
+            ),
+            scaffoldBackgroundColor: AppColors.darkBg,
+            appBarTheme: const AppBarTheme(
+              elevation: 0,
+              centerTitle: true,
+              backgroundColor: AppColors.darkBgSecondary,
+              foregroundColor: Colors.white,
+              titleTextStyle: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+            cardTheme: CardThemeData(
+              elevation: 4,
+              color: AppColors.darkBgCard,
+              shadowColor: AppColors.primaryBlue.withOpacity(0.3),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+              backgroundColor: AppColors.darkBgSecondary,
+              selectedItemColor: AppColors.primaryBlue,
+              unselectedItemColor: Colors.grey,
+              type: BottomNavigationBarType.fixed,
+              elevation: 8,
+            ),
+            floatingActionButtonTheme: const FloatingActionButtonThemeData(
+              backgroundColor: AppColors.primaryBlue,
+              foregroundColor: Colors.white,
+              elevation: 6,
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: AppColors.darkBgSecondary,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide:
+                    const BorderSide(color: AppColors.primaryBlue, width: 2),
+              ),
+            ),
+            elevatedButtonTheme: ElevatedButtonThemeData(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryBlue,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 4,
+              ),
+            ),
+          ),
+          themeMode: currentMode,
+          initialRoute: initialRoute,
+          routes: {
+            '/': (context) => const HomeScreen(),
+            '/home': (context) => const HomeScreen(),
+            '/login': (context) => const AuthPage(),
+          },
+        );
+      },
+    );
+  }
+}

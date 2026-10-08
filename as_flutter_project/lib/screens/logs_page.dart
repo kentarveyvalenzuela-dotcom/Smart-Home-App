@@ -10,7 +10,8 @@ class LogsPage extends StatefulWidget {
   State<LogsPage> createState() => _LogsPageState();
 }
 
-class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin {
+class _LogsPageState extends State<LogsPage>
+    with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
   List<dynamic> _logs = [];
   bool _isLoading = true;
@@ -40,7 +41,7 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
 
   Future<void> _loadLogs() async {
     if (!mounted) return;
-    
+
     setState(() => _isLoading = true);
 
     try {
@@ -103,8 +104,8 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: isDark
-            ? [AppColors.darkBg, AppColors.darkBgSecondary]
-            : [AppColors.lightBg, Colors.white],
+              ? [AppColors.darkBg, AppColors.darkBgSecondary]
+              : [AppColors.lightBg, Colors.white],
         ),
       ),
       child: Column(
@@ -141,11 +142,14 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _buildModernFilterChip('All', 'all', Icons.list_rounded, isDark),
+                  _buildModernFilterChip(
+                      'All', 'all', Icons.list_rounded, isDark),
                   const SizedBox(width: 8),
-                  _buildModernFilterChip('Devices', 'device_control', Icons.devices_rounded, isDark),
+                  _buildModernFilterChip('Devices', 'device_control',
+                      Icons.devices_rounded, isDark),
                   const SizedBox(width: 8),
-                  _buildModernFilterChip('Sensors', 'sensor_readings', Icons.sensors_rounded, isDark),
+                  _buildModernFilterChip('Sensors', 'sensor_readings',
+                      Icons.sensors_rounded, isDark),
                 ],
               ),
             ),
@@ -157,7 +161,8 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
     );
   }
 
-  Widget _buildModernFilterChip(String label, String type, IconData icon, bool isDark) {
+  Widget _buildModernFilterChip(
+      String label, String type, IconData icon, bool isDark) {
     final isSelected = _filterType == type;
 
     return GestureDetector(
@@ -173,24 +178,29 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           gradient: isSelected
-            ? LinearGradient(
-                colors: [AppColors.primaryBlue, AppColors.electricPurple.withOpacity(0.8)],
-              )
-            : null,
-          color: isSelected ? null : (isDark ? AppColors.darkBgCard : Colors.white),
+              ? LinearGradient(
+                  colors: [
+                    AppColors.primaryBlue,
+                    AppColors.electricPurple.withValues(alpha: 0.8)
+                  ],
+                )
+              : null,
+          color: isSelected
+              ? null
+              : (isDark ? AppColors.darkBgCard : Colors.white),
           borderRadius: BorderRadius.circular(12),
           border: isSelected
-            ? null
-            : Border.all(color: Colors.grey.withOpacity(0.3)),
+              ? null
+              : Border.all(color: Colors.grey.withValues(alpha: 0.3)),
           boxShadow: isSelected
-            ? [
-                BoxShadow(
-                  color: AppColors.primaryBlue.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ]
-            : null,
+              ? [
+                  BoxShadow(
+                    color: AppColors.primaryBlue.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -206,7 +216,9 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                color: isSelected ? Colors.white : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                color: isSelected
+                    ? Colors.white
+                    : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
               ),
             ),
           ],
@@ -219,9 +231,9 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.primaryBlue.withOpacity(0.15),
+        color: AppColors.primaryBlue.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.primaryBlue.withOpacity(0.3)),
+        border: Border.all(color: AppColors.primaryBlue.withValues(alpha: 0.3)),
       ),
       child: PopupMenuButton<int>(
         initialValue: _selectedHours,
@@ -242,7 +254,8 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.access_time_rounded, size: 16, color: AppColors.primaryBlue),
+            const Icon(Icons.access_time_rounded,
+                size: 16, color: AppColors.primaryBlue),
             const SizedBox(width: 6),
             Text(
               '${_selectedHours}h',
@@ -252,7 +265,8 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
                 fontSize: 13,
               ),
             ),
-            const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 18),
+            const Icon(Icons.arrow_drop_down,
+                color: AppColors.primaryBlue, size: 18),
           ],
         ),
       ),
@@ -264,20 +278,23 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.error.withOpacity(0.1),
+        color: AppColors.error.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.error.withOpacity(0.3)),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 20),
+          const Icon(Icons.error_outline_rounded,
+              color: AppColors.error, size: 20),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 13)),
+            child: Text(_error!,
+                style: const TextStyle(color: AppColors.error, fontSize: 13)),
           ),
           TextButton(
             onPressed: _loadLogs,
-            child: const Text('Retry', style: TextStyle(color: AppColors.primaryBlue)),
+            child: const Text('Retry',
+                style: TextStyle(color: AppColors.primaryBlue)),
           ),
         ],
       ),
@@ -296,7 +313,7 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.primaryBlue.withOpacity(0.2),
+                  color: AppColors.primaryBlue.withValues(alpha: 0.2),
                   blurRadius: 15,
                 ),
               ],
@@ -360,7 +377,8 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: _logs.length,
-        itemBuilder: (context, index) => _buildModernLogItem(_logs[index], isDark, index),
+        itemBuilder: (context, index) =>
+            _buildModernLogItem(_logs[index], isDark, index),
       ),
     );
   }
@@ -384,7 +402,9 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
         String unit = log['unit'] ?? '';
         title = log['device_name'] ?? 'Sensor';
         subtitle = '$sensorType: $value $unit';
-        icon = sensorType == 'voltage' ? Icons.bolt_rounded : Icons.electric_meter_rounded;
+        icon = sensorType == 'voltage'
+            ? Icons.bolt_rounded
+            : Icons.electric_meter_rounded;
         iconColor = AppColors.electricYellow;
       }
 
@@ -417,10 +437,10 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
           decoration: BoxDecoration(
             color: isDark ? AppColors.darkBgCard : Colors.white,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: iconColor.withOpacity(0.2)),
+            border: Border.all(color: iconColor.withValues(alpha: 0.2)),
             boxShadow: [
               BoxShadow(
-                color: iconColor.withOpacity(0.08),
+                color: iconColor.withValues(alpha: 0.08),
                 blurRadius: 8,
                 offset: const Offset(0, 3),
               ),
@@ -431,7 +451,7 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.15),
+                  color: iconColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: iconColor, size: 22),
@@ -480,7 +500,8 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkBgSecondary : Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.withOpacity(0.2))),
+        border:
+            Border(top: BorderSide(color: Colors.grey.withValues(alpha: 0.2))),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -530,8 +551,8 @@ class _LogsPageState extends State<LogsPage> with SingleTickerProviderStateMixin
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: enabled
-            ? AppColors.primaryBlue.withOpacity(0.15)
-            : Colors.grey.withOpacity(0.1),
+              ? AppColors.primaryBlue.withValues(alpha: 0.15)
+              : Colors.grey.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Icon(

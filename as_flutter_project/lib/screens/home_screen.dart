@@ -6,7 +6,6 @@ import 'device_page.dart';
 import 'notification_page.dart';
 import 'settings_page.dart';
 import 'logs_page.dart';
-import 'monitor_page.dart';
 import '../services/energy_monitor_service.dart';
 import '../services/notification_service.dart';
 import '../services/sync_service.dart';
@@ -26,9 +25,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _selectedIndex = 0;
 
   late AnimationController _pulseController;
-  late AnimationController _slideController;
   late Animation<double> _pulseAnimation;
-  late Animation<Offset> _slideAnimation;
 
   // Energy data
   EnergyReading? _currentReading;
@@ -88,17 +85,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    _slideController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0.05, 0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOut));
-
-    _slideController.forward();
   }
 
   Future<void> _initializeServices() async {
@@ -201,7 +187,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     _pulseController.dispose();
-    _slideController.dispose();
     _readingSub?.cancel();
     _billSub?.cancel();
     _offlineCheckTimer?.cancel();
@@ -211,11 +196,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Keep page instances alive to preserve state
   // These are created once and reused (not recreated on every build)
   final List<Widget> _pages = const [
-    MonitorPage(),    // index 1
-    DevicePage(),     // index 2
-    LogsPage(),       // index 3
-    NotificationsPage(), // index 4
-    SettingsPage(),   // index 5
+    DevicePage(),
+    LogsPage(),
+    NotificationsPage(),
+    SettingsPage(),
   ];
 
   @override
@@ -231,11 +215,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           // Dashboard needs to rebuild for energy data updates
           _buildDashboardPage(),
           // These pages keep their state via AutomaticKeepAliveClientMixin
-          _pages[0], // MonitorPage
-          _pages[1], // DevicePage
-          _pages[2], // LogsPage
-          _pages[3], // NotificationsPage
-          _pages[4], // SettingsPage
+          _pages[0], // DevicePage
+          _pages[1], // LogsPage
+          _pages[2], // NotificationsPage
+          _pages[3], // SettingsPage
         ],
       ),
       bottomNavigationBar: _buildBottomNavBar(isDark),
@@ -299,8 +282,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             child: const Icon(Icons.refresh, size: 20),
           ),
           onPressed: () {
-            _slideController.reset();
-            _slideController.forward();
             setState(() {});
           },
         ),
@@ -334,11 +315,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildNavItem(0, Icons.dashboard_rounded, 'Home'),
-              _buildNavItem(1, Icons.videocam_rounded, 'Monitor'),
-              _buildNavItem(2, Icons.devices_rounded, 'Devices'),
-              _buildNavItem(3, Icons.history_rounded, 'Logs'),
-              _buildNavItem(4, Icons.notifications_rounded, 'Alerts'),
-              _buildNavItem(5, Icons.settings_rounded, 'Settings'),
+              _buildNavItem(1, Icons.devices_rounded, 'Devices'),
+              _buildNavItem(2, Icons.history_rounded, 'Logs'),
+              _buildNavItem(3, Icons.notifications_rounded, 'Alerts'),
+              _buildNavItem(4, Icons.settings_rounded, 'Settings'),
             ],
           ),
         ),
@@ -352,8 +332,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return GestureDetector(
       onTap: () {
         if (_selectedIndex != index) {
-          _slideController.reset();
-          _slideController.forward();
           setState(() => _selectedIndex = index);
         }
       },
@@ -383,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   String _getAppBarTitle() {
-    const titles = ['Dashboard', 'Camera Monitor', 'Device Control', 'Activity Logs', 'Notifications', 'Settings'];
+    const titles = ['Dashboard', 'Device Control', 'Activity Logs', 'Notifications', 'Settings'];
     return titles[_selectedIndex];
   }
 

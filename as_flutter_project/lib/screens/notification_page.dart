@@ -13,7 +13,8 @@ class NotificationsPage extends StatefulWidget {
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
 
-class _NotificationsPageState extends State<NotificationsPage> with TickerProviderStateMixin {
+class _NotificationsPageState extends State<NotificationsPage>
+    with TickerProviderStateMixin {
   final AuthService _authService = AuthService();
   final NotificationService _notificationService = NotificationService();
 
@@ -50,7 +51,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
     await _notificationService.initialize();
     _activityNotifications = _notificationService.notifications;
 
-    _notificationSub = _notificationService.notificationStream.listen((notifications) {
+    _notificationSub =
+        _notificationService.notificationStream.listen((notifications) {
       if (mounted) {
         setState(() {
           _activityNotifications = notifications;
@@ -119,7 +121,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
           content: const Text('Alert resolved'),
           backgroundColor: AppColors.electricGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
       _loadAlerts();
@@ -149,7 +152,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                     content: Text('Cleared ${result['cleared_count']} alerts'),
                     backgroundColor: AppColors.electricGreen,
                     behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
                 );
                 _loadAlerts();
@@ -157,7 +161,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primaryBlue,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
             child: const Text('Clear All'),
           ),
@@ -187,13 +192,15 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                   content: const Text('All notifications cleared'),
                   backgroundColor: AppColors.electricGreen,
                   behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
               );
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primaryBlue,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
             child: const Text('Clear All'),
           ),
@@ -212,8 +219,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: isDark
-            ? [AppColors.darkBg, AppColors.darkBgSecondary]
-            : [AppColors.lightBg, Colors.white],
+              ? [AppColors.darkBg, AppColors.darkBgSecondary]
+              : [AppColors.lightBg, Colors.white],
         ),
       ),
       child: Column(
@@ -248,14 +255,16 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                       if (_notificationService.unreadCount > 0) ...[
                         const SizedBox(width: 4),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: AppColors.error,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
                             '${_notificationService.unreadCount}',
-                            style: const TextStyle(fontSize: 10, color: Colors.white),
+                            style: const TextStyle(
+                                fontSize: 10, color: Colors.white),
                           ),
                         ),
                       ],
@@ -272,14 +281,16 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                       if ((_summary['unresolved_alerts'] ?? 0) > 0) ...[
                         const SizedBox(width: 4),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: AppColors.error,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
                             '${_summary['unresolved_alerts'] ?? 0}',
-                            style: const TextStyle(fontSize: 10, color: Colors.white),
+                            style: const TextStyle(
+                                fontSize: 10, color: Colors.white),
                           ),
                         ),
                       ],
@@ -317,13 +328,18 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 TextButton.icon(
-                  icon: const Icon(Icons.done_all_rounded, color: AppColors.primaryBlue, size: 20),
-                  label: const Text('Mark all read', style: TextStyle(color: AppColors.primaryBlue, fontSize: 12)),
+                  icon: const Icon(Icons.done_all_rounded,
+                      color: AppColors.primaryBlue, size: 20),
+                  label: const Text('Mark all read',
+                      style: TextStyle(
+                          color: AppColors.primaryBlue, fontSize: 12)),
                   onPressed: () => _notificationService.markAllAsRead(),
                 ),
                 TextButton.icon(
-                  icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20),
-                  label: const Text('Clear all', style: TextStyle(color: AppColors.error, fontSize: 12)),
+                  icon: const Icon(Icons.delete_outline_rounded,
+                      color: AppColors.error, size: 20),
+                  label: const Text('Clear all',
+                      style: TextStyle(color: AppColors.error, fontSize: 12)),
                   onPressed: _clearAllNotifications,
                 ),
               ],
@@ -332,12 +348,13 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
 
         Expanded(
           child: _activityNotifications.isEmpty
-            ? _buildEmptyActivityState(isDark)
-            : ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: _activityNotifications.length,
-                itemBuilder: (context, index) => _buildActivityItem(_activityNotifications[index], index, isDark),
-              ),
+              ? _buildEmptyActivityState(isDark)
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _activityNotifications.length,
+                  itemBuilder: (context, index) => _buildActivityItem(
+                      _activityNotifications[index], index, isDark),
+                ),
         ),
 
         const SizedBox(height: 80),
@@ -381,7 +398,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
     );
   }
 
-  Widget _buildActivityItem(ActivityNotification notification, int index, bool isDark) {
+  Widget _buildActivityItem(
+      ActivityNotification notification, int index, bool isDark) {
     final timeStr = DateFormat('MMM dd, HH:mm').format(notification.timestamp);
 
     IconData icon;
@@ -445,28 +463,31 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
           ),
           child: const Icon(Icons.delete_rounded, color: Colors.white),
         ),
-        onDismissed: (_) => _notificationService.deleteNotification(notification.id),
+        onDismissed: (_) =>
+            _notificationService.deleteNotification(notification.id),
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
           decoration: BoxDecoration(
             color: isDark
-              ? (notification.isRead ? AppColors.darkBg.withOpacity(0.5) : AppColors.darkBgCard)
-              : (notification.isRead ? Colors.grey.shade100 : Colors.white),
+                ? (notification.isRead
+                    ? AppColors.darkBg.withValues(alpha: 0.5)
+                    : AppColors.darkBgCard)
+                : (notification.isRead ? Colors.grey.shade100 : Colors.white),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: notification.isRead
-                ? Colors.grey.withOpacity(0.2)
-                : iconColor.withOpacity(0.3),
+                  ? Colors.grey.withValues(alpha: 0.2)
+                  : iconColor.withValues(alpha: 0.3),
             ),
             boxShadow: notification.isRead
-              ? null
-              : [
-                  BoxShadow(
-                    color: iconColor.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
+                ? null
+                : [
+                    BoxShadow(
+                      color: iconColor.withValues(alpha: 0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
           ),
           child: Material(
             color: Colors.transparent,
@@ -485,7 +506,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: iconColor.withOpacity(notification.isRead ? 0.1 : 0.15),
+                        color: iconColor.withValues(
+                            alpha: notification.isRead ? 0.1 : 0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
@@ -523,7 +545,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                       children: [
                         Text(
                           timeStr,
-                          style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                          style: TextStyle(
+                              fontSize: 10, color: Colors.grey.shade500),
                         ),
                         if (!notification.isRead) ...[
                           const SizedBox(height: 8),
@@ -560,8 +583,10 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton.icon(
-                  icon: const Icon(Icons.done_all_rounded, color: AppColors.primaryBlue, size: 20),
-                  label: const Text('Clear all', style: TextStyle(color: AppColors.primaryBlue)),
+                  icon: const Icon(Icons.done_all_rounded,
+                      color: AppColors.primaryBlue, size: 20),
+                  label: const Text('Clear all',
+                      style: TextStyle(color: AppColors.primaryBlue)),
                   onPressed: _clearAllAlerts,
                 ),
               ],
@@ -569,104 +594,110 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
           ),
         Expanded(
           child: _isLoadingAlerts
-            ? _buildLoadingState(isDark)
-            : RefreshIndicator(
-                onRefresh: _loadAlerts,
-                color: AppColors.primaryBlue,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  child: Column(
-                    children: [
-                      if (_alertError != null) _buildErrorBanner(isDark),
+              ? _buildLoadingState(isDark)
+              : RefreshIndicator(
+                  onRefresh: _loadAlerts,
+                  color: AppColors.primaryBlue,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Column(
+                      children: [
+                        if (_alertError != null) _buildErrorBanner(isDark),
 
-                      // Summary cards
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            _buildModernSummaryCard(
-                              'Total',
-                              _summary['total_alerts']?.toString() ?? '0',
-                              AppColors.primaryBlue,
-                              Icons.notifications_rounded,
-                              isDark,
-                            ),
-                            const SizedBox(width: 10),
-                            _buildModernSummaryCard(
-                              'Active',
-                              _summary['unresolved_alerts']?.toString() ?? '0',
-                              AppColors.error,
-                              Icons.warning_rounded,
-                              isDark,
-                            ),
-                            const SizedBox(width: 10),
-                            _buildModernSummaryCard(
-                              '24h',
-                              _summary['alerts_24h']?.toString() ?? '0',
-                              AppColors.warning,
-                              Icons.access_time_rounded,
-                              isDark,
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Info about 24-hour alerts
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.info.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.info.withOpacity(0.3)),
-                          ),
+                        // Summary cards
+                        Padding(
+                          padding: const EdgeInsets.all(16),
                           child: Row(
                             children: [
-                              Icon(Icons.info_outline_rounded, color: AppColors.info, size: 20),
+                              _buildModernSummaryCard(
+                                'Total',
+                                _summary['total_alerts']?.toString() ?? '0',
+                                AppColors.primaryBlue,
+                                Icons.notifications_rounded,
+                                isDark,
+                              ),
                               const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Alerts are triggered when devices are ON for more than 24 hours continuously.',
-                                  style: TextStyle(fontSize: 12, color: AppColors.info),
-                                ),
+                              _buildModernSummaryCard(
+                                'Active',
+                                _summary['unresolved_alerts']?.toString() ??
+                                    '0',
+                                AppColors.error,
+                                Icons.warning_rounded,
+                                isDark,
+                              ),
+                              const SizedBox(width: 10),
+                              _buildModernSummaryCard(
+                                '24h',
+                                _summary['alerts_24h']?.toString() ?? '0',
+                                AppColors.warning,
+                                Icons.access_time_rounded,
+                                isDark,
                               ),
                             ],
                           ),
                         ),
-                      ),
 
-                      const SizedBox(height: 12),
-
-                      // Filter toggle
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          children: [
-                            _buildFilterToggle(isDark),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      // Alerts list
-                      _alerts.isEmpty
-                          ? _buildEmptyAlertState(isDark)
-                          : ListView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              itemCount: _alerts.length,
-                              itemBuilder: (context, index) =>
-                                  _buildModernAlertItem(_alerts[index], index, isDark),
+                        // Info about 24-hour alerts
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.info.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: AppColors.info.withValues(alpha: 0.3)),
                             ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.info_outline_rounded,
+                                    color: AppColors.info, size: 20),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Alerts are triggered when devices are ON for more than 24 hours continuously.',
+                                    style: TextStyle(
+                                        fontSize: 12, color: AppColors.info),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
 
-                      const SizedBox(height: 80),
-                    ],
+                        const SizedBox(height: 12),
+
+                        // Filter toggle
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              _buildFilterToggle(isDark),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        // Alerts list
+                        _alerts.isEmpty
+                            ? _buildEmptyAlertState(isDark)
+                            : ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                itemCount: _alerts.length,
+                                itemBuilder: (context, index) =>
+                                    _buildModernAlertItem(
+                                        _alerts[index], index, isDark),
+                              ),
+
+                        const SizedBox(height: 80),
+                      ],
+                    ),
                   ),
                 ),
-              ),
         ),
       ],
     );
@@ -684,7 +715,7 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.primaryBlue.withOpacity(0.2),
+                  color: AppColors.primaryBlue.withValues(alpha: 0.2),
                   blurRadius: 15,
                 ),
               ],
@@ -709,37 +740,41 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.error.withOpacity(0.1),
+        color: AppColors.error.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.error.withOpacity(0.3)),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 20),
+          const Icon(Icons.error_outline_rounded,
+              color: AppColors.error, size: 20),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(_alertError!, style: const TextStyle(color: AppColors.error, fontSize: 13)),
+            child: Text(_alertError!,
+                style: const TextStyle(color: AppColors.error, fontSize: 13)),
           ),
           TextButton(
             onPressed: _loadAlerts,
-            child: const Text('Retry', style: TextStyle(color: AppColors.primaryBlue)),
+            child: const Text('Retry',
+                style: TextStyle(color: AppColors.primaryBlue)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildModernSummaryCard(String label, String value, Color color, IconData icon, bool isDark) {
+  Widget _buildModernSummaryCard(
+      String label, String value, Color color, IconData icon, bool isDark) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: isDark ? AppColors.darkBgCard : Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
@@ -787,30 +822,37 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           gradient: _showUnresolvedOnly
-            ? LinearGradient(
-                colors: [AppColors.primaryBlue, AppColors.electricPurple.withOpacity(0.8)],
-              )
-            : null,
-          color: _showUnresolvedOnly ? null : (isDark ? AppColors.darkBgCard : Colors.white),
+              ? LinearGradient(
+                  colors: [
+                    AppColors.primaryBlue,
+                    AppColors.electricPurple.withValues(alpha: 0.8)
+                  ],
+                )
+              : null,
+          color: _showUnresolvedOnly
+              ? null
+              : (isDark ? AppColors.darkBgCard : Colors.white),
           borderRadius: BorderRadius.circular(12),
           border: _showUnresolvedOnly
-            ? null
-            : Border.all(color: Colors.grey.withOpacity(0.3)),
+              ? null
+              : Border.all(color: Colors.grey.withValues(alpha: 0.3)),
           boxShadow: _showUnresolvedOnly
-            ? [
-                BoxShadow(
-                  color: AppColors.primaryBlue.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ]
-            : null,
+              ? [
+                  BoxShadow(
+                    color: AppColors.primaryBlue.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              _showUnresolvedOnly ? Icons.filter_list_rounded : Icons.filter_list_off_rounded,
+              _showUnresolvedOnly
+                  ? Icons.filter_list_rounded
+                  : Icons.filter_list_off_rounded,
               size: 16,
               color: _showUnresolvedOnly ? Colors.white : Colors.grey.shade500,
             ),
@@ -819,8 +861,11 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
               'Unresolved Only',
               style: TextStyle(
                 fontSize: 13,
-                fontWeight: _showUnresolvedOnly ? FontWeight.w600 : FontWeight.normal,
-                color: _showUnresolvedOnly ? Colors.white : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                fontWeight:
+                    _showUnresolvedOnly ? FontWeight.w600 : FontWeight.normal,
+                color: _showUnresolvedOnly
+                    ? Colors.white
+                    : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
               ),
             ),
           ],
@@ -894,7 +939,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
     } else if (alertType.contains('current')) {
       icon = Icons.bolt_rounded;
       iconColor = AppColors.electricPurple;
-    } else if (alertType.contains('24_hours') || alertType.contains('long_running')) {
+    } else if (alertType.contains('24_hours') ||
+        alertType.contains('long_running')) {
       icon = Icons.timer_off_rounded;
       iconColor = AppColors.warning;
     } else {
@@ -916,23 +962,25 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
           color: isDark
-            ? (isResolved ? AppColors.darkBg.withOpacity(0.5) : AppColors.darkBgCard)
-            : (isResolved ? Colors.grey.shade100 : Colors.white),
+              ? (isResolved
+                  ? AppColors.darkBg.withValues(alpha: 0.5)
+                  : AppColors.darkBgCard)
+              : (isResolved ? Colors.grey.shade100 : Colors.white),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isResolved
-              ? Colors.grey.withOpacity(0.2)
-              : iconColor.withOpacity(0.3),
+                ? Colors.grey.withValues(alpha: 0.2)
+                : iconColor.withValues(alpha: 0.3),
           ),
           boxShadow: isResolved
-            ? null
-            : [
-                BoxShadow(
-                  color: iconColor.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
+              ? null
+              : [
+                  BoxShadow(
+                    color: iconColor.withValues(alpha: 0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
         ),
         child: Material(
           color: Colors.transparent,
@@ -947,7 +995,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: (isResolved ? Colors.grey : iconColor).withOpacity(0.15),
+                      color: (isResolved ? Colors.grey : iconColor)
+                          .withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
@@ -967,13 +1016,15 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: isDark ? Colors.white : AppColors.darkBg,
-                            decoration: isResolved ? TextDecoration.lineThrough : null,
+                            decoration:
+                                isResolved ? TextDecoration.lineThrough : null,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           '${alert['device_name'] ?? 'Unknown'} • Pin ${alert['pin_number'] ?? '-'}',
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey.shade500),
                         ),
                         if (alert['value'] != null) ...[
                           const SizedBox(height: 2),
@@ -990,7 +1041,9 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                               if (alert['threshold'] != null) ...[
                                 Text(
                                   ' / Threshold: ${alert['threshold']}',
-                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500),
                                 ),
                               ],
                             ],
@@ -1004,14 +1057,17 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                     children: [
                       Text(
                         timeStr,
-                        style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                        style: TextStyle(
+                            fontSize: 10, color: Colors.grey.shade500),
                       ),
                       const SizedBox(height: 8),
                       if (isResolved)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: AppColors.electricGreen.withOpacity(0.15),
+                            color:
+                                AppColors.electricGreen.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Text(
@@ -1027,7 +1083,8 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
                         Container(
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
-                            color: AppColors.primaryBlue.withOpacity(0.15),
+                            color:
+                                AppColors.primaryBlue.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(
@@ -1047,4 +1104,3 @@ class _NotificationsPageState extends State<NotificationsPage> with TickerProvid
     );
   }
 }
-

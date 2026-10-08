@@ -1,21 +1,21 @@
-# 🔐 Credentials & Configuration Report
+﻿# ðŸ” Credentials & Configuration Report
 **Generated:** December 14, 2025
 
 ---
 
-## ✅ SUMMARY STATUS
+## âœ… SUMMARY STATUS
 
 | Service | Status | Notes |
 |---------|--------|-------|
-| Firebase | ✅ OK | Project ID: smart-home-iot-5ef3e |
-| HiveMQ MQTT | ✅ OK | Cloud broker configured |
-| Heroku Backend | ✅ OK | Production URL configured |
-| Gmail SMTP | ⚠️ Check | App password may expire |
-| Google OAuth | ✅ OK | Client IDs configured |
+| Firebase | âœ… OK | Project ID: smart-home-iot-5ef3e |
+| HiveMQ MQTT | âœ… OK | Cloud broker configured |
+| Heroku Backend | âœ… OK | Production URL configured |
+| Gmail SMTP | âš ï¸ Check | App password may expire |
+| Google OAuth | âœ… OK | Client IDs configured |
 
 ---
 
-## 1️⃣ FIREBASE CONFIGURATION
+## 1ï¸âƒ£ FIREBASE CONFIGURATION
 
 ### Firebase Project Details
 - **Project ID:** `smart-home-iot-5ef3e`
@@ -25,13 +25,13 @@
 
 ### API Keys
 - **Web API Key:** `AIzaSyDWsNL0M372W1Q9LRMK4l1hOqZ4c42SjLY`
-- **Status:** ✅ Valid (Firebase API keys don't expire)
+- **Status:** âœ… Valid (Firebase API keys don't expire)
 
 ### Service Account
 - **File:** `backend/firebase-service-account.json`
 - **Client Email:** `firebase-adminsdk-fbsvc@smart-home-iot-5ef3e.iam.gserviceaccount.com`
 - **Private Key ID:** `94fad230ca5cd6abfc25e4c2a92101b5d275679a`
-- **Status:** ✅ Valid (Service accounts don't expire unless manually revoked)
+- **Status:** âœ… Valid (Service accounts don't expire unless manually revoked)
 
 ### Android Configuration
 - **Package Names:**
@@ -44,11 +44,11 @@
 ### Flutter Firebase Options
 - **File:** `lib/firebase_options.dart`
 - **Platforms Configured:** Android, iOS, Web, macOS
-- **Status:** ✅ Valid
+- **Status:** âœ… Valid
 
 ---
 
-## 2️⃣ HIVEMQ MQTT BROKER
+## 2ï¸âƒ£ HIVEMQ MQTT BROKER
 
 ### Connection Details
 - **Host:** `de9d5f2926cf45349f923cadced1aece.s1.eu.hivemq.cloud`
@@ -58,18 +58,18 @@
 ### Credentials
 - **Username:** `as_flutter_user`
 - **Password:** `SmartHome@2025`
-- **Status:** ✅ Valid (HiveMQ Cloud credentials persist unless changed)
+- **Status:** âœ… Valid (HiveMQ Cloud credentials persist unless changed)
 
 ### ESP32 Configuration
 - Same broker settings configured in `esp32_mqtt_production.ino`
 
 ---
 
-## 3️⃣ HEROKU BACKEND
+## 3ï¸âƒ£ HEROKU BACKEND
 
 ### Production URL
 - **URL:** `https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com`
-- **Status:** ✅ Should be running (test by visiting URL in browser)
+- **Status:** âœ… Should be running (test by visiting URL in browser)
 
 ### Endpoints Available
 - `/` - Health check / API info
@@ -78,7 +78,6 @@
 - `/sensors/*` - Sensor data
 - `/logs/*` - Activity logs
 - `/alerts/*` - Alert management
-- `/camera/*` - Camera/image management
 
 ### Environment Variables (on Heroku)
 Required config vars on Heroku dashboard:
@@ -91,7 +90,7 @@ Required config vars on Heroku dashboard:
 
 ---
 
-## 4️⃣ GMAIL SMTP (2FA)
+## 4ï¸âƒ£ GMAIL SMTP (2FA)
 
 ### Configuration
 - **Email:** `brixbriongos14@gmail.com`
@@ -99,7 +98,7 @@ Required config vars on Heroku dashboard:
 - **SMTP Server:** `smtp.gmail.com`
 - **Port:** `587`
 
-### ⚠️ Important Notes:
+### âš ï¸ Important Notes:
 - Gmail App Passwords **do NOT expire** automatically
 - They remain valid until:
   - Manually revoked in Google Account settings
@@ -114,7 +113,7 @@ Required config vars on Heroku dashboard:
 
 ---
 
-## 5️⃣ ESP32 DEVICE CONFIGURATION
+## 5ï¸âƒ£ ESP32 DEVICE CONFIGURATION
 
 ### Default Device Settings
 - **Device ID:** `sala`
@@ -134,7 +133,7 @@ Required config vars on Heroku dashboard:
 
 ---
 
-## 🔧 HOW TO TEST CREDENTIALS
+## ðŸ”§ HOW TO TEST CREDENTIALS
 
 ### Test Firebase:
 ```bash
@@ -172,7 +171,7 @@ smtp.quit()
 
 ---
 
-## 📋 CHECKLIST FOR DEPLOYMENT
+## ðŸ“‹ CHECKLIST FOR DEPLOYMENT
 
 - [ ] Firebase Project exists and not deleted
 - [ ] Firebase Realtime Database rules allow authenticated access
@@ -186,7 +185,7 @@ smtp.quit()
 
 ---
 
-## 🔄 WHEN TO UPDATE CREDENTIALS
+## ðŸ”„ WHEN TO UPDATE CREDENTIALS
 
 | Credential | When to Update |
 |------------|----------------|
@@ -198,7 +197,7 @@ smtp.quit()
 
 ---
 
-## 📞 QUICK FIX LINKS
+## ðŸ“ž QUICK FIX LINKS
 
 - Firebase Console: https://console.firebase.google.com/project/smart-home-iot-5ef3e
 - HiveMQ Dashboard: https://console.hivemq.cloud/

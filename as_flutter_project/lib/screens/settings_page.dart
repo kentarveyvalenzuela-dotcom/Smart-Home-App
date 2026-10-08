@@ -53,11 +53,11 @@ class _SettingsPageState extends State<SettingsPage> {
               'provider': firebaseUser['provider'] ?? 'email',
             };
             _isOAuthUser = firebaseUser['provider'] == 'google.com' ||
-                           firebaseUser['provider'] == 'google';
+                firebaseUser['provider'] == 'google';
           } else if (profile != null) {
             _profile = profile;
             _isOAuthUser = profile['provider'] == 'google' ||
-                           profile['is_oauth_user'] == true;
+                profile['is_oauth_user'] == true;
           }
 
           if (prefs != null) {
@@ -76,7 +76,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _showProfileDialog() {
     final nameController = TextEditingController(text: _profile['name'] ?? '');
-    final emailController = TextEditingController(text: _profile['email'] ?? '');
+    final emailController =
+        TextEditingController(text: _profile['email'] ?? '');
 
     showDialog(
       context: context,
@@ -116,12 +117,13 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _updateProfile(String name, String email) async {
     setState(() => _isSavingProfile = true);
     final result = await _authService.updateUserProfile(name, email);
-    
+
     if (result != null && mounted) {
       // Add notification for profile update
       NotificationService().addProfileUpdateNotification();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated'), backgroundColor: Colors.green),
+        const SnackBar(
+            content: Text('Profile updated'), backgroundColor: Colors.green),
       );
       _loadProfileAndPreferences();
     }
@@ -193,7 +195,9 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               final newUrl = controller.text.trim();
@@ -219,8 +223,10 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _showVoltageThresholdDialog() async {
-    final minController = TextEditingController(text: ConfigService().voltageMin.toString());
-    final maxController = TextEditingController(text: ConfigService().voltageMax.toString());
+    final minController =
+        TextEditingController(text: ConfigService().voltageMin.toString());
+    final maxController =
+        TextEditingController(text: ConfigService().voltageMax.toString());
     final result = await showDialog<Map<String, double>>(
       context: context,
       builder: (context) => AlertDialog(
@@ -230,7 +236,8 @@ class _SettingsPageState extends State<SettingsPage> {
           children: [
             TextField(
               controller: minController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
                 labelText: 'Minimum Voltage (V)',
                 border: OutlineInputBorder(),
@@ -239,7 +246,8 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 12),
             TextField(
               controller: maxController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
                 labelText: 'Maximum Voltage (V)',
                 border: OutlineInputBorder(),
@@ -254,8 +262,10 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           ElevatedButton(
             onPressed: () {
-              final min = double.tryParse(minController.text.trim()) ?? ConfigService().voltageMin;
-              final max = double.tryParse(maxController.text.trim()) ?? ConfigService().voltageMax;
+              final min = double.tryParse(minController.text.trim()) ??
+                  ConfigService().voltageMin;
+              final max = double.tryParse(maxController.text.trim()) ??
+                  ConfigService().voltageMax;
               Navigator.pop(context, {'min': min, 'max': max});
             },
             child: const Text('Save'),
@@ -277,7 +287,8 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _showAmperageThresholdDialog() async {
-    final controller = TextEditingController(text: ConfigService().amperageMax.toString());
+    final controller =
+        TextEditingController(text: ConfigService().amperageMax.toString());
     final result = await showDialog<double>(
       context: context,
       builder: (context) => AlertDialog(
@@ -297,7 +308,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           ElevatedButton(
             onPressed: () {
-              final max = double.tryParse(controller.text.trim()) ?? ConfigService().amperageMax;
+              final max = double.tryParse(controller.text.trim()) ??
+                  ConfigService().amperageMax;
               Navigator.pop(context, max);
             },
             child: const Text('Save'),
@@ -318,23 +330,29 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _changePassword(String currentPwd, String newPwd, String confirmPwd) async {
+  Future<void> _changePassword(
+      String currentPwd, String newPwd, String confirmPwd) async {
     if (newPwd != confirmPwd) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Passwords do not match'), backgroundColor: Colors.red),
+        const SnackBar(
+            content: Text('Passwords do not match'),
+            backgroundColor: Colors.red),
       );
       return;
     }
 
     if (newPwd.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password must be at least 6 characters'), backgroundColor: Colors.red),
+        const SnackBar(
+            content: Text('Password must be at least 6 characters'),
+            backgroundColor: Colors.red),
       );
       return;
     }
 
     setState(() => _isChangingPassword = true);
-    final result = await _authService.changePassword(currentPwd, newPwd, confirmPwd);
+    final result =
+        await _authService.changePassword(currentPwd, newPwd, confirmPwd);
 
     if (mounted) {
       setState(() => _isChangingPassword = false);
@@ -342,11 +360,14 @@ class _SettingsPageState extends State<SettingsPage> {
         // Add notification for password change
         NotificationService().addPasswordChangeNotification();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Password changed'), backgroundColor: Colors.green),
+          const SnackBar(
+              content: Text('Password changed'), backgroundColor: Colors.green),
         );
       } else if (result != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['detail'] ?? 'Error'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(result['detail'] ?? 'Error'),
+              backgroundColor: Colors.red),
         );
       }
     }
@@ -381,7 +402,8 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Clear App Data'),
-        content: const Text('This will clear all cached devices and settings. You will need to re-add your devices. Continue?'),
+        content: const Text(
+            'This will clear all cached devices and settings. You will need to re-add your devices. Continue?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -453,7 +475,6 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-
   Future<void> _toggleNotifications(bool enable) async {
     setState(() {
       _notificationsEnabled = enable;
@@ -469,7 +490,9 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() => _isSavingPreferences = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(enable ? '🔔 Notifications enabled' : '🔕 Notifications disabled'),
+          content: Text(enable
+              ? '🔔 Notifications enabled'
+              : '🔕 Notifications disabled'),
           backgroundColor: AppColors.electricGreen,
           behavior: SnackBarBehavior.floating,
         ),
@@ -492,7 +515,8 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() => _isSavingPreferences = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(enable ? '📧 Email alerts enabled' : '📧 Email alerts disabled'),
+          content: Text(
+              enable ? '📧 Email alerts enabled' : '📧 Email alerts disabled'),
           backgroundColor: AppColors.electricGreen,
           behavior: SnackBarBehavior.floating,
         ),
@@ -506,7 +530,8 @@ class _SettingsPageState extends State<SettingsPage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text("Delete Account"),
-          content: const Text("⚠️ This action cannot be undone! All your data will be permanently deleted."),
+          content: const Text(
+              "⚠️ This action cannot be undone! All your data will be permanently deleted."),
           actions: [
             TextButton(
               child: const Text("Cancel"),
@@ -539,8 +564,8 @@ class _SettingsPageState extends State<SettingsPage> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: isDark
-            ? [AppColors.darkBg, AppColors.darkBgSecondary]
-            : [AppColors.lightBg, Colors.white],
+              ? [AppColors.darkBg, AppColors.darkBgSecondary]
+              : [AppColors.lightBg, Colors.white],
         ),
       ),
       child: _isLoading
@@ -567,8 +592,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       title: 'Edit Profile',
                       subtitle: 'Update your name and email',
                       trailing: _isSavingProfile
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryBlue))
-                          : Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: AppColors.primaryBlue))
+                          : Icon(Icons.chevron_right_rounded,
+                              color: Colors.grey.shade400),
                       onTap: _isSavingProfile ? null : _showProfileDialog,
                       isDark: isDark,
                     ),
@@ -579,8 +609,14 @@ class _SettingsPageState extends State<SettingsPage> {
                         title: 'Change Password',
                         subtitle: 'Update your password',
                         trailing: _isChangingPassword
-                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryBlue))
-                            : Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.primaryBlue))
+                            : Icon(Icons.chevron_right_rounded,
+                                color: Colors.grey.shade400),
                         onTap: _isChangingPassword ? null : _showPasswordDialog,
                         isDark: isDark,
                       ),
@@ -604,7 +640,9 @@ class _SettingsPageState extends State<SettingsPage> {
                       icon: Icons.notifications_rounded,
                       iconColor: AppColors.primaryBlue,
                       title: 'Notifications',
-                      subtitle: _notificationsEnabled ? 'Alerts enabled' : 'Alerts disabled',
+                      subtitle: _notificationsEnabled
+                          ? 'Alerts enabled'
+                          : 'Alerts disabled',
                       value: _notificationsEnabled,
                       onChanged: _toggleNotifications,
                       isLoading: _isSavingPreferences,
@@ -614,7 +652,9 @@ class _SettingsPageState extends State<SettingsPage> {
                       icon: Icons.email_rounded,
                       iconColor: AppColors.electricOrange,
                       title: 'Email Alerts',
-                      subtitle: _emailAlertsEnabled ? 'Email notifications on' : 'Email notifications off',
+                      subtitle: _emailAlertsEnabled
+                          ? 'Email notifications on'
+                          : 'Email notifications off',
                       value: _emailAlertsEnabled,
                       onChanged: _toggleEmailAlerts,
                       isLoading: _isSavingPreferences,
@@ -634,8 +674,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       title: 'Backend URL',
                       subtitle: _backendUrl.isEmpty ? 'Not set' : _backendUrl,
                       trailing: _isSavingBackend
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryBlue))
-                          : Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: AppColors.primaryBlue))
+                          : Icon(Icons.chevron_right_rounded,
+                              color: Colors.grey.shade400),
                       onTap: _showBackendDialog,
                       isDark: isDark,
                     ),
@@ -643,8 +688,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       icon: Icons.electric_bolt_rounded,
                       iconColor: AppColors.electricYellow,
                       title: 'Voltage Thresholds',
-                      subtitle: 'Min: ${ConfigService().voltageMin}V, Max: ${ConfigService().voltageMax}V',
-                      trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                      subtitle:
+                          'Min: ${ConfigService().voltageMin}V, Max: ${ConfigService().voltageMax}V',
+                      trailing: Icon(Icons.chevron_right_rounded,
+                          color: Colors.grey.shade400),
                       onTap: _showVoltageThresholdDialog,
                       isDark: isDark,
                     ),
@@ -653,7 +700,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       iconColor: AppColors.warning,
                       title: 'Amperage Threshold',
                       subtitle: 'Max: ${ConfigService().amperageMax}A',
-                      trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                      trailing: Icon(Icons.chevron_right_rounded,
+                          color: Colors.grey.shade400),
                       onTap: _showAmperageThresholdDialog,
                       isDark: isDark,
                     ),
@@ -670,7 +718,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       iconColor: AppColors.info,
                       title: 'About',
                       subtitle: 'App version and details',
-                      trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                      trailing: Icon(Icons.chevron_right_rounded,
+                          color: Colors.grey.shade400),
                       onTap: () {
                         showAboutDialog(
                           context: context,
@@ -680,11 +729,15 @@ class _SettingsPageState extends State<SettingsPage> {
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
-                                colors: [AppColors.primaryBlue, AppColors.electricPurple],
+                                colors: [
+                                  AppColors.primaryBlue,
+                                  AppColors.electricPurple
+                                ],
                               ),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(Icons.home_rounded, color: Colors.white, size: 32),
+                            child: const Icon(Icons.home_rounded,
+                                color: Colors.white, size: 32),
                           ),
                           applicationLegalese: "© 2025 Smart Home IoT",
                         );
@@ -704,7 +757,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       iconColor: Colors.orange,
                       title: 'Clear App Data',
                       subtitle: 'Clear cached devices and settings',
-                      trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                      trailing: Icon(Icons.chevron_right_rounded,
+                          color: Colors.grey.shade400),
                       onTap: _confirmClearData,
                       isDark: isDark,
                     ),
@@ -713,7 +767,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       iconColor: AppColors.warning,
                       title: 'Logout',
                       subtitle: 'Sign out of your account',
-                      trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                      trailing: Icon(Icons.chevron_right_rounded,
+                          color: Colors.grey.shade400),
                       onTap: _confirmLogout,
                       isDark: isDark,
                     ),
@@ -722,7 +777,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       iconColor: AppColors.error,
                       title: 'Delete Account',
                       subtitle: 'Permanently remove your account',
-                      trailing: Icon(Icons.chevron_right_rounded, color: AppColors.error.withOpacity(0.5)),
+                      trailing: Icon(Icons.chevron_right_rounded,
+                          color: AppColors.error.withValues(alpha: 0.5)),
                       onTap: _confirmDeleteAccount,
                       isDark: isDark,
                       isDestructive: true,
@@ -740,7 +796,12 @@ class _SettingsPageState extends State<SettingsPage> {
     final userName = _profile['name'] ?? 'User';
     final userEmail = _profile['email'] ?? 'Not logged in';
     final initials = userName.isNotEmpty
-        ? userName.split(' ').map((n) => n.isNotEmpty ? n[0] : '').take(2).join().toUpperCase()
+        ? userName
+            .split(' ')
+            .map((n) => n.isNotEmpty ? n[0] : '')
+            .take(2)
+            .join()
+            .toUpperCase()
         : 'U';
 
     return Container(
@@ -757,7 +818,7 @@ class _SettingsPageState extends State<SettingsPage> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primaryBlue.withOpacity(0.3),
+            color: AppColors.primaryBlue.withValues(alpha: 0.3),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
@@ -770,9 +831,10 @@ class _SettingsPageState extends State<SettingsPage> {
             width: 70,
             height: 70,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withOpacity(0.3), width: 2),
+              border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.3), width: 2),
             ),
             child: Center(
               child: Text(
@@ -803,22 +865,25 @@ class _SettingsPageState extends State<SettingsPage> {
                 Text(
                   userEmail,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.85),
+                    color: Colors.white.withValues(alpha: 0.85),
                     fontSize: 14,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        _isOAuthUser ? Icons.g_mobiledata_rounded : Icons.email_rounded,
+                        _isOAuthUser
+                            ? Icons.g_mobiledata_rounded
+                            : Icons.email_rounded,
                         color: Colors.white,
                         size: 16,
                       ),
@@ -860,7 +925,7 @@ class _SettingsPageState extends State<SettingsPage> {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.primaryBlue.withOpacity(0.2),
+                  color: AppColors.primaryBlue.withValues(alpha: 0.2),
                   blurRadius: 15,
                 ),
               ],
@@ -900,10 +965,10 @@ class _SettingsPageState extends State<SettingsPage> {
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkBgCard : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primaryBlue.withOpacity(isDark ? 0.1 : 0.05),
+            color: AppColors.primaryBlue.withValues(alpha: isDark ? 0.1 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -914,7 +979,10 @@ class _SettingsPageState extends State<SettingsPage> {
           for (int i = 0; i < children.length; i++) ...[
             children[i],
             if (i < children.length - 1)
-              Divider(height: 1, indent: 60, color: Colors.grey.withOpacity(0.15)),
+              Divider(
+                  height: 1,
+                  indent: 60,
+                  color: Colors.grey.withValues(alpha: 0.15)),
           ],
         ],
       ),
@@ -943,7 +1011,7 @@ class _SettingsPageState extends State<SettingsPage> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.15),
+                  color: iconColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: iconColor, size: 20),
@@ -958,7 +1026,9 @@ class _SettingsPageState extends State<SettingsPage> {
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
-                        color: isDestructive ? AppColors.error : (isDark ? Colors.white : AppColors.darkBg),
+                        color: isDestructive
+                            ? AppColors.error
+                            : (isDark ? Colors.white : AppColors.darkBg),
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -999,11 +1069,15 @@ class _SettingsPageState extends State<SettingsPage> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.15),
+              color: iconColor.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: isLoading
-                ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: iconColor))
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: iconColor))
                 : Icon(icon, color: iconColor, size: 20),
           ),
           const SizedBox(width: 14),
@@ -1035,8 +1109,8 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Switch(
               value: value,
               onChanged: onChanged,
-              activeColor: AppColors.electricGreen,
-              activeTrackColor: AppColors.electricGreen.withOpacity(0.5),
+              activeThumbColor: AppColors.electricGreen,
+              activeTrackColor: AppColors.electricGreen.withValues(alpha: 0.5),
             ),
           ),
         ],
@@ -1058,7 +1132,7 @@ class _SettingsPageState extends State<SettingsPage> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.15),
+              color: iconColor.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: iconColor, size: 20),

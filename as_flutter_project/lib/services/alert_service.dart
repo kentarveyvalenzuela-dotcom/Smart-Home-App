@@ -41,11 +41,11 @@ class Alert {
       isRead: json['is_read'] ?? false,
       isDismissed: json['is_dismissed'] ?? false,
       createdAt: json['created_at'] != null
-        ? DateTime.parse(json['created_at'])
-        : DateTime.now(),
+          ? DateTime.parse(json['created_at'])
+          : DateTime.now(),
       acknowledgedAt: json['acknowledged_at'] != null
-        ? DateTime.parse(json['acknowledged_at'])
-        : null,
+          ? DateTime.parse(json['acknowledged_at'])
+          : null,
     );
   }
 
@@ -145,7 +145,7 @@ class AlertService extends ApiService {
       '/alerts/list',
       parser: (data) {
         if (data == null || data is! List) return [];
-        return (data as List)
+        return (data)
             .map((item) => Alert.fromJson(item as Map<String, dynamic>))
             .toList();
       },
@@ -164,7 +164,7 @@ class AlertService extends ApiService {
       '/alerts/unread',
       parser: (data) {
         if (data == null || data is! List) return [];
-        return (data as List)
+        return (data)
             .map((item) => Alert.fromJson(item as Map<String, dynamic>))
             .toList();
       },
@@ -243,4 +243,3 @@ class AlertService extends ApiService {
     return dismissAlert(alertId);
   }
 }
-

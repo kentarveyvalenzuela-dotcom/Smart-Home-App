@@ -11,7 +11,7 @@ class GoogleSignIn2FAPage extends StatefulWidget {
 class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
   final _auth = GoogleSignIn2FAService();
   final _codeController = TextEditingController();
-  
+
   bool _isLoading = false;
   bool _show2FAInput = false;
   String? _userEmail;
@@ -35,7 +35,7 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
 
     setState(() {
       _isLoading = false;
-      
+
       if (result['success'] == true) {
         if (result['requires2FA'] == true) {
           // Show 2FA input
@@ -47,7 +47,7 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
           // Sign-in complete
           _message = result['message'] ?? 'Sign-in successful!';
           _isError = false;
-          
+
           // Navigate to home screen
           Future.delayed(const Duration(seconds: 1), () {
             if (mounted) {
@@ -85,11 +85,11 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
 
     setState(() {
       _isLoading = false;
-      
+
       if (result['success'] == true) {
         _message = result['message'] ?? 'Verification successful!';
         _isError = false;
-        
+
         // Navigate to home screen
         Future.delayed(const Duration(seconds: 1), () {
           if (mounted) {
@@ -150,7 +150,7 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
+                          color: Colors.black.withValues(alpha: 0.2),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                         ),
@@ -163,7 +163,7 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
                     ),
                   ),
                   const SizedBox(height: 32),
-                  
+
                   // Title
                   const Text(
                     'Smart Home IoT',
@@ -182,7 +182,7 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
                     ),
                   ),
                   const SizedBox(height: 48),
-                  
+
                   // Card for content
                   Card(
                     elevation: 8,
@@ -200,9 +200,9 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
                             // 2FA Code Input
                             _build2FAInput(),
                           ],
-                          
+
                           const SizedBox(height: 16),
-                          
+
                           // Message display
                           if (_message.isNotEmpty)
                             Container(
@@ -224,7 +224,9 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
                                     child: Text(
                                       _message,
                                       style: TextStyle(
-                                        color: _isError ? Colors.red : Colors.green,
+                                        color: _isError
+                                            ? Colors.red
+                                            : Colors.green,
                                       ),
                                     ),
                                   ),
@@ -235,9 +237,9 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 24),
-                  
+
                   // Info text
                   const Text(
                     'Your data is protected with\nGoogle Sign-In and Two-Factor Authentication',
@@ -310,7 +312,7 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
           ),
         ),
         const SizedBox(height: 24),
-        
+
         // Code input field
         TextField(
           controller: _codeController,
@@ -335,7 +337,7 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
           ),
         ),
         const SizedBox(height: 24),
-        
+
         // Verify button
         SizedBox(
           width: double.infinity,
@@ -357,7 +359,7 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
           ),
         ),
         const SizedBox(height: 16),
-        
+
         // Resend code button
         Center(
           child: TextButton(
@@ -365,7 +367,7 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
             child: const Text('Resend Code'),
           ),
         ),
-        
+
         // Back button
         Center(
           child: TextButton(

@@ -35,14 +35,15 @@ class ActivityLog {
       details: json['details'] ?? '',
       ipAddress: json['ip_address'] ?? '',
       createdAt: json['created_at'] != null
-        ? DateTime.parse(json['created_at'])
-        : DateTime.now(),
+          ? DateTime.parse(json['created_at'])
+          : DateTime.now(),
       metadata: json['metadata'] as Map<String, dynamic>?,
     );
   }
 
   @override
-  String toString() => 'ActivityLog(action: $action, resourceType: $resourceType)';
+  String toString() =>
+      'ActivityLog(action: $action, resourceType: $resourceType)';
 }
 
 /// Device control log
@@ -77,8 +78,8 @@ class DeviceControlLog {
       success: json['success'] ?? false,
       errorMessage: json['error_message'],
       timestamp: json['timestamp'] != null
-        ? DateTime.parse(json['timestamp'])
-        : DateTime.now(),
+          ? DateTime.parse(json['timestamp'])
+          : DateTime.now(),
     );
   }
 }
@@ -106,7 +107,7 @@ class LogService extends ApiService {
       '/logs/user',
       parser: (data) {
         if (data == null || data is! List) return [];
-        return (data as List)
+        return (data)
             .map((item) => ActivityLog.fromJson(item as Map<String, dynamic>))
             .toList();
       },
@@ -132,8 +133,9 @@ class LogService extends ApiService {
       '/logs/device/$deviceId',
       parser: (data) {
         if (data == null || data is! List) return [];
-        return (data as List)
-            .map((item) => DeviceControlLog.fromJson(item as Map<String, dynamic>))
+        return (data)
+            .map((item) =>
+                DeviceControlLog.fromJson(item as Map<String, dynamic>))
             .toList();
       },
       queryParams: {
@@ -238,4 +240,3 @@ class LogService extends ApiService {
     );
   }
 }
-

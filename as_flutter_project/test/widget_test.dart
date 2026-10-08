@@ -10,10 +10,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_home_app/main.dart';
 
 void main() {
-  testWidgets('App shows AuthPage', (WidgetTester tester) async {
+  testWidgets('App opens the dashboard', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
 
-    // AuthPage contains the app title text
-    expect(find.text('SMART HOME IOT'), findsOneWidget);
+    expect(find.text('Dashboard'), findsOneWidget);
   });
 }

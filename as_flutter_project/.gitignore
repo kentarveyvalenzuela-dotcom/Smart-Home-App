@@ -81,3 +81,5 @@ backend/.env
 *.pem
 
 # End of secret ignores
+# Widget Preview related
+.widget_preview/

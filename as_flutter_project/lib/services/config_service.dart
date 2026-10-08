@@ -1,6 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:io' show Platform;
 
 /// Simple runtime configuration for endpoints and toggles.
 class ConfigService {
@@ -22,67 +21,45 @@ class ConfigService {
   String _backendUrl = _getDefaultBackendUrl();
   bool _initialized = false;
 
-  /// 🧠 INTELLIGENT Auto-detection: Web/App + Local/Heroku
+  static String _normalizeBackendUrl(String rawUrl) {
+    final trimmed = rawUrl.trim();
+    if (trimmed.isEmpty) {
+      return 'http://localhost:8000';
+    }
+
+    String normalized = trimmed;
+    while (normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+
+    return normalized;
+  }
+
+  bool get hasValidBackendUrl {
+    final uri = Uri.tryParse(_backendUrl);
+    return uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+  }
+
+  /// Local development defaults to the FastAPI server running on port 8000.
+  /// Heroku remains available as an override for production deployments.
   static String _getDefaultBackendUrl() {
-    // Priority 1: Check for environment variable (production builds)
     const envUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
     if (envUrl.isNotEmpty) {
       debugPrint('✅ Using BACKEND_URL from environment: $envUrl');
       return envUrl;
     }
 
-    // Priority 2: Detect if running on WEB or MOBILE/DESKTOP
-    bool isWeb = kIsWeb;
-    
-    // Priority 3: Detect if localhost is available (local dev)
-    // For now, default to localhost for all local development
-    String backendUrl;
-    
-    if (isWeb) {
-      // 🌐 WEB APP
-      debugPrint('🌐 Detected: Flutter Web');
-      // Always use Heroku production for web (matches mobile/desktop release mode)
-      backendUrl = 'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-      debugPrint('🔗 Web app using: $backendUrl');
-    } else {
-      // 📱 MOBILE/DESKTOP APP
-      String platform = '';
-      if (kDebugMode) {
-        try {
-          if (Platform.isAndroid) {
-            platform = '(Android)';
-            // Android emulator can't use localhost - use Heroku for reliability
-            // If you want local dev, use 10.0.2.2 instead of localhost
-            backendUrl = 'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-          } else if (Platform.isIOS) {
-            platform = '(iOS)';
-            // iOS simulator can use localhost, but Heroku is more reliable
-            backendUrl = 'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-          } else if (Platform.isWindows) {
-            platform = '(Windows)';
-            backendUrl = 'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-          } else if (Platform.isLinux) {
-            platform = '(Linux)';
-            backendUrl = 'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-          } else {
-            platform = '(Unknown)';
-            backendUrl = 'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-          }
-        } catch (e) {
-          platform = '(Fallback)';
-          backendUrl = 'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-        }
-      } else {
-        // Release mode - use Heroku production
-        platform = '(Release)';
-        backendUrl = 'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-      }
-      
-      debugPrint('📱 Detected: Mobile/Desktop App $platform');
-      debugPrint('🔗 Using: $backendUrl');
+    const localUrl = 'http://localhost:8000';
+    const productionUrl =
+        'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
+
+    if (kDebugMode || kIsWeb) {
+      debugPrint('🧪 Using local backend for development: $localUrl');
+      return localUrl;
     }
 
-    return backendUrl;
+    debugPrint('🚀 Using production backend: $productionUrl');
+    return productionUrl;
   }
 
   String get backendUrl => _backendUrl;
@@ -95,7 +72,8 @@ class ConfigService {
     if (_initialized) return;
     try {
       final prefs = await SharedPreferences.getInstance();
-      _backendUrl = prefs.getString(_backendKey) ?? _backendUrl;
+      _backendUrl =
+          _normalizeBackendUrl(prefs.getString(_backendKey) ?? _backendUrl);
       _voltageMin = prefs.getDouble(_voltageMinKey) ?? _voltageMin;
       _voltageMax = prefs.getDouble(_voltageMaxKey) ?? _voltageMax;
       _amperageMax = prefs.getDouble(_amperageMaxKey) ?? _amperageMax;
@@ -108,7 +86,7 @@ class ConfigService {
   }
 
   Future<void> setBackendUrl(String url) async {
-    _backendUrl = url.trim();
+    _backendUrl = _normalizeBackendUrl(url);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_backendKey, _backendUrl);
     debugPrint('🔧 Backend URL updated to: $_backendUrl');
@@ -145,7 +123,8 @@ class ConfigService {
 
   /// 🔧 Helper: Switch to Heroku Production
   Future<void> useHerokuBackend() async {
-    await setBackendUrl('https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com');
+    await setBackendUrl(
+        'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com');
   }
 
   /// 🔐 IMPORTANT: Google OAuth ALWAYS uses Heroku (requires HTTPS!)
@@ -174,10 +153,8 @@ Amperage Max: $_amperageMax A
 Theme: $_themeMode
 ═══════════════════════════════════════
 Note: Google OAuth always uses Heroku (HTTPS required)
-Other APIs use localhost when in debug mode
+API backend defaults to localhost:8000 for local development
 ═══════════════════════════════════════
     ''';
   }
 }
-
-

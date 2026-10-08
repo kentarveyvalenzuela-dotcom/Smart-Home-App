@@ -1,158 +1,150 @@
-# 📱 BRIX SMART HOME IoT - COMPREHENSIVE STATUS REPORT
+﻿# ðŸ“± BRIX SMART HOME IoT - COMPREHENSIVE STATUS REPORT
 **Report Date:** December 17, 2025  
 **Version:** 1.0.0  
 **Project Name:** BRIX - Smart Home IoT System
 
 ---
 
-## 📊 EXECUTIVE SUMMARY
+## ðŸ“Š EXECUTIVE SUMMARY
 
 | Category | Status | Completion |
 |----------|--------|------------|
-| **Frontend (Flutter)** | ✅ Complete | 100% |
-| **Backend (FastAPI)** | ✅ Complete | 100% |
-| **Authentication** | ✅ Complete | 100% |
-| **Device Control** | ✅ Complete | 100% |
-| **Energy Monitoring** | ✅ Complete | 100% |
-| **Camera System** | ✅ Complete | 100% |
-| **ESP32 Firmware** | ✅ Complete | 100% |
-| **Notifications** | ✅ Complete | 100% |
+| **Frontend (Flutter)** | âœ… Complete | 100% |
+| **Backend (FastAPI)** | âœ… Complete | 100% |
+| **Authentication** | âœ… Complete | 100% |
+| **Device Control** | âœ… Complete | 100% |
+| **Energy Monitoring** | âœ… Complete | 100% |
+| **ESP32 Firmware** | âœ… Complete | 100% |
+| **Notifications** | âœ… Complete | 100% |
 
 ---
 
-## 🏗️ SYSTEM ARCHITECTURE
+## ðŸ—ï¸ SYSTEM ARCHITECTURE
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         BRIX SMART HOME SYSTEM                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   ┌─────────────┐     ┌─────────────┐     ┌─────────────────────────┐  │
-│   │   FLUTTER   │     │   FASTAPI   │     │        ESP32            │  │
-│   │   MOBILE    │◄───►│   BACKEND   │◄───►│   SMART HOME            │  │
-│   │   /WEB APP  │     │   (HEROKU)  │     │   + ENERGY MONITOR      │  │
-│   └──────┬──────┘     └──────┬──────┘     │   + ESP32-CAM           │  │
-│          │                   │            └────────────┬────────────┘  │
-│          │                   │                         │               │
-│          │            ┌──────┴──────┐                  │               │
-│          │            │   HIVEMQ    │◄─────────────────┘               │
-│          │            │   CLOUD     │                                  │
-│          │            │   (MQTT)    │                                  │
-│          │            └─────────────┘                                  │
-│          │                                                             │
-│   ┌──────┴──────────────────────────────────────────────────────────┐  │
-│   │                        FIREBASE                                  │  │
-│   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │  │
-│   │  │    AUTH     │  │  REALTIME   │  │       STORAGE           │  │  │
-│   │  │  (Google +  │  │  DATABASE   │  │  (Camera Snapshots)     │  │  │
-│   │  │   Email)    │  │  (Sensors)  │  │                         │  │  │
-│   │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │  │
-│   └─────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                         BRIX SMART HOME SYSTEM                          â”‚
+â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚                                                                         â”‚
+â”‚   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+â”‚   â”‚   FLUTTER   â”‚     â”‚   FASTAPI   â”‚     â”‚        ESP32            â”‚  â”‚
+â”‚   â”‚   MOBILE    â”‚â—„â”€â”€â”€â–ºâ”‚   BACKEND   â”‚â—„â”€â”€â”€â–ºâ”‚   SMART HOME            â”‚  â”‚
+â”‚   â”‚   /WEB APP  â”‚     â”‚   (HEROKU)  â”‚     â”‚   + ENERGY MONITOR      â”‚  â”‚
+â”‚   â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”˜     â”‚   + ESP32-CAM           â”‚  â”‚
+â”‚          â”‚                   â”‚            â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+â”‚          â”‚                   â”‚                         â”‚               â”‚
+â”‚          â”‚            â”Œâ”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”                  â”‚               â”‚
+â”‚          â”‚            â”‚   HIVEMQ    â”‚â—„â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜               â”‚
+â”‚          â”‚            â”‚   CLOUD     â”‚                                  â”‚
+â”‚          â”‚            â”‚   (MQTT)    â”‚                                  â”‚
+â”‚          â”‚            â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                                  â”‚
+â”‚          â”‚                                                             â”‚
+â”‚   â”Œâ”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+â”‚   â”‚                        FIREBASE                                  â”‚  â”‚
+â”‚   â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚  â”‚
+â”‚   â”‚  â”‚    AUTH     â”‚  â”‚  REALTIME   â”‚  â”‚       STORAGE           â”‚  â”‚  â”‚
+â”‚   â”‚  â”‚   Email)    â”‚  â”‚  (Sensors)  â”‚  â”‚                         â”‚  â”‚  â”‚
+â”‚   â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚  â”‚
+â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+â”‚                                                                         â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ---
 
-## 📱 FLUTTER FRONTEND
+## ðŸ“± FLUTTER FRONTEND
 
 ### Platform Support
 | Platform | Status | Notes |
 |----------|--------|-------|
-| Android | ✅ Supported | APK/AAB build ready |
-| iOS | ✅ Supported | Xcode build ready |
-| Web | ✅ Supported | Chrome/Firefox/Edge |
-| Windows | ✅ Supported | Desktop app |
-| macOS | ✅ Supported | Desktop app |
-| Linux | ✅ Supported | Desktop app |
+| Android | âœ… Supported | APK/AAB build ready |
+| iOS | âœ… Supported | Xcode build ready |
+| Web | âœ… Supported | Chrome/Firefox/Edge |
+| Windows | âœ… Supported | Desktop app |
+| macOS | âœ… Supported | Desktop app |
+| Linux | âœ… Supported | Desktop app |
 
 ### Screens/Pages (lib/screens/)
 | Screen | File | Features | Status |
 |--------|------|----------|--------|
-| **Auth Page** | `auth_page.dart` | Login, Register, Google OAuth | ✅ Complete |
-| **Home Screen** | `home_screen.dart` | Dashboard, Stats, Navigation | ✅ Complete |
-| **Device Page** | `device_page.dart` | Add/Remove/Control Devices | ✅ Complete |
-| **Monitor Page** | `monitor_page.dart` | ESP32-CAM Live Streaming | ✅ Complete |
-| **Settings Page** | `settings_page.dart` | Profile, Preferences, Logout | ✅ Complete |
-| **Logs Page** | `logs_page.dart` | Activity Logs, Filters | ✅ Complete |
-| **Notification Page** | `notification_page.dart` | Alerts, Activity History | ✅ Complete |
-| **Forgot Password** | `forgot_password_page.dart` | Password Reset | ✅ Complete |
-| **Google 2FA Page** | `google_signin_2fa_page.dart` | Two-Factor Auth | ✅ Complete |
-| **Cameras Page** | `cameras_page.dart` | Multi-camera View | ✅ Complete |
-| **Video Player** | `video_player_page.dart` | Playback Recordings | ✅ Complete |
+| **Auth Page** | `auth_page.dart` | Login, Register, Google OAuth | âœ… Complete |
+| **Home Screen** | `home_screen.dart` | Dashboard, Stats, Navigation | âœ… Complete |
+| **Device Page** | `device_page.dart` | Add/Remove/Control Devices | âœ… Complete |
+| **Monitor Page** | `monitor_page.dart` | ESP32-CAM Live Streaming | âœ… Complete |
+| **Settings Page** | `settings_page.dart` | Profile, Preferences, Logout | âœ… Complete |
+| **Logs Page** | `logs_page.dart` | Activity Logs, Filters | âœ… Complete |
+| **Notification Page** | `notification_page.dart` | Alerts, Activity History | âœ… Complete |
+| **Forgot Password** | `forgot_password_page.dart` | Password Reset | âœ… Complete |
+| **Google 2FA Page** | `google_signin_2fa_page.dart` | Two-Factor Auth | âœ… Complete |
 
 ### Services (lib/services/)
 | Service | File | Purpose | Status |
 |---------|------|---------|--------|
-| **Auth Service** | `auth_service.dart` | Authentication, Token Management | ✅ Complete |
-| **MQTT Service** | `mqtt_service.dart` | ESP32 Communication | ✅ Complete |
-| **Device Service** | `device_service.dart` | Device CRUD Operations | ✅ Complete |
-| **Config Service** | `config_service.dart` | App Configuration | ✅ Complete |
-| **Energy Monitor** | `energy_monitor_service.dart` | Power Consumption | ✅ Complete |
-| **ESP32 Camera** | `esp32_camera_service.dart` | Camera Streaming | ✅ Complete |
-| **Notification** | `notification_service.dart` | Push/Local Notifications | ✅ Complete |
-| **Firebase DB** | `firebase_database_service.dart` | Realtime Data | ✅ Complete |
-| **Sync Service** | `sync_service.dart` | Backend Synchronization | ✅ Complete |
-| **Connectivity** | `connectivity_service.dart` | Network Status | ✅ Complete |
-| **Alert Service** | `alert_service.dart` | Alert Management | ✅ Complete |
-| **Camera Service** | `camera_service.dart` | Camera Discovery | ✅ Complete |
-| **Log Service** | `log_service.dart` | Activity Logging | ✅ Complete |
-| **Sensor Service** | `sensor_service.dart` | Sensor Data | ✅ Complete |
-| **Google SignIn 2FA** | `google_signin_2fa_service.dart` | 2FA for Google | ✅ Complete |
-| **API Service** | `api_service.dart` | Base HTTP Client | ✅ Complete |
-| **Backend Sync** | `backend_sync_service.dart` | Data Sync | ✅ Complete |
+| **Auth Service** | `auth_service.dart` | Authentication, Token Management | âœ… Complete |
+| **MQTT Service** | `mqtt_service.dart` | ESP32 Communication | âœ… Complete |
+| **Device Service** | `device_service.dart` | Device CRUD Operations | âœ… Complete |
+| **Config Service** | `config_service.dart` | App Configuration | âœ… Complete |
+| **Energy Monitor** | `energy_monitor_service.dart` | Power Consumption | âœ… Complete |
+| **Notification** | `notification_service.dart` | Push/Local Notifications | âœ… Complete |
+| **Firebase DB** | `firebase_database_service.dart` | Realtime Data | âœ… Complete |
+| **Sync Service** | `sync_service.dart` | Backend Synchronization | âœ… Complete |
+| **Connectivity** | `connectivity_service.dart` | Network Status | âœ… Complete |
+| **Alert Service** | `alert_service.dart` | Alert Management | âœ… Complete |
+| **Log Service** | `log_service.dart` | Activity Logging | âœ… Complete |
+| **Sensor Service** | `sensor_service.dart` | Sensor Data | âœ… Complete |
+| **Google SignIn 2FA** | `google_signin_2fa_service.dart` | 2FA for Google | âœ… Complete |
+| **API Service** | `api_service.dart` | Base HTTP Client | âœ… Complete |
+| **Backend Sync** | `backend_sync_service.dart` | Data Sync | âœ… Complete |
 
 ---
 
-## ⚡ BACKEND (FastAPI/Python)
+## âš¡ BACKEND (FastAPI/Python)
 
 ### API Endpoints
 | Module | Endpoints | Purpose | Status |
 |--------|-----------|---------|--------|
-| **Authentication** | `/auth/*` | Login, Register, Token | ✅ Complete |
-| **Google OAuth** | `/auth/google-signin` | Google Sign-In | ✅ Complete |
-| **2FA** | `/auth/verify-2fa`, `/auth/enable-2fa` | Two-Factor Auth | ✅ Complete |
-| **Password Reset** | `/auth/password-reset/*` | Forgot Password | ✅ Complete |
-| **Devices** | `/devices/*` | CRUD, Control | ✅ Complete |
-| **Sensors** | `/sensors/*` | Energy Data | ✅ Complete |
-| **Logs** | `/logs/*` | Activity Logs | ✅ Complete |
-| **Alerts** | `/alerts/*` | Alert Management | ✅ Complete |
-| **Camera** | `/camera/*` | Camera Integration | ✅ Complete |
-| **Appliances** | `/appliances/*` | Appliance Presets | ✅ Complete |
-| **Health** | `/health` | System Status | ✅ Complete |
+| **Authentication** | `/auth/*` | Login, Register, Token | âœ… Complete |
+| **Google OAuth** | `/auth/google-signin` | Google Sign-In | âœ… Complete |
+| **2FA** | `/auth/verify-2fa`, `/auth/enable-2fa` | Two-Factor Auth | âœ… Complete |
+| **Password Reset** | `/auth/password-reset/*` | Forgot Password | âœ… Complete |
+| **Devices** | `/devices/*` | CRUD, Control | âœ… Complete |
+| **Sensors** | `/sensors/*` | Energy Data | âœ… Complete |
+| **Logs** | `/logs/*` | Activity Logs | âœ… Complete |
+| **Alerts** | `/alerts/*` | Alert Management | âœ… Complete |
+| **Appliances** | `/appliances/*` | Appliance Presets | âœ… Complete |
+| **Health** | `/health` | System Status | âœ… Complete |
 
 ### Backend Files (backend/app/)
 | File | Purpose | Status |
 |------|---------|--------|
-| `main.py` | FastAPI App Entry | ✅ Complete |
-| `firebase_config.py` | Firebase Init | ✅ Complete |
-| `mqtt_service.py` | MQTT Client | ✅ Complete |
-| `email_auth.py` | Email Authentication | ✅ Complete |
-| `google_auth.py` | Google OAuth | ✅ Complete |
-| `google_signin_2fa.py` | 2FA Implementation | ✅ Complete |
-| `devices_firebase.py` | Device Management | ✅ Complete |
-| `sensors_firebase.py` | Sensor Data | ✅ Complete |
-| `alerts_firebase.py` | Alert System | ✅ Complete |
-| `logs_firebase.py` | Logging System | ✅ Complete |
-| `camera.py` | Camera Routes | ✅ Complete |
-| `appliances.py` | Appliance Presets | ✅ Complete |
-| `email_service.py` | Email Sending | ✅ Complete |
-| `token_management.py` | JWT Tokens | ✅ Complete |
-| `settings.py` | Configuration | ✅ Complete |
-| `schemas.py` | Pydantic Models | ✅ Complete |
+| `main.py` | FastAPI App Entry | âœ… Complete |
+| `firebase_config.py` | Firebase Init | âœ… Complete |
+| `mqtt_service.py` | MQTT Client | âœ… Complete |
+| `email_auth.py` | Email Authentication | âœ… Complete |
+| `google_auth.py` | Google OAuth | âœ… Complete |
+| `google_signin_2fa.py` | 2FA Implementation | âœ… Complete |
+| `devices_firebase.py` | Device Management | âœ… Complete |
+| `sensors_firebase.py` | Sensor Data | âœ… Complete |
+| `alerts_firebase.py` | Alert System | âœ… Complete |
+| `logs_firebase.py` | Logging System | âœ… Complete |
+| `appliances.py` | Appliance Presets | âœ… Complete |
+| `email_service.py` | Email Sending | âœ… Complete |
+| `token_management.py` | JWT Tokens | âœ… Complete |
+| `settings.py` | Configuration | âœ… Complete |
+| `schemas.py` | Pydantic Models | âœ… Complete |
 
 ---
 
-## 🔌 ESP32 HARDWARE
+## ðŸ”Œ ESP32 HARDWARE
 
 ### ESP32 Smart Home Controller
 | Feature | Status | GPIO Pins |
 |---------|--------|-----------|
-| WiFi Connection | ✅ Working | - |
-| MQTT (HiveMQ TLS) | ✅ Working | - |
-| Relay Control | ✅ Working | GPIO 23, 22, 21, 19, 18, 17 |
-| Firebase Integration | ✅ Working | - |
-| Auto-reconnect | ✅ Working | - |
+| WiFi Connection | âœ… Working | - |
+| MQTT (HiveMQ TLS) | âœ… Working | - |
+| Relay Control | âœ… Working | GPIO 23, 22, 21, 19, 18, 17 |
+| Firebase Integration | âœ… Working | - |
+| Auto-reconnect | âœ… Working | - |
 
 ### Device Control Mapping
 | Room/Location | GPIO Pin | MQTT ID | Type |
@@ -167,39 +159,37 @@
 ### ESP32 Energy Monitor
 | Sensor | GPIO Pin | Purpose | Status |
 |--------|----------|---------|--------|
-| ZMPT101B | GPIO 13 | Voltage (220V AC) | ✅ Working |
-| SCT-013-030 #1 | GPIO 35 | Current Ch1 (Kitchen) | ✅ Working |
-| SCT-013-030 #2 | GPIO 34 | Current Ch2 (Living) | ✅ Working |
-| SCT-013-030 #3 | GPIO 33 | Current Ch3 (Bedroom) | ✅ Working |
-| SCT-013-030 #4 | GPIO 32 | Current Ch4 (Others) | ✅ Working |
+| ZMPT101B | GPIO 13 | Voltage (220V AC) | âœ… Working |
+| SCT-013-030 #1 | GPIO 35 | Current Ch1 (Kitchen) | âœ… Working |
+| SCT-013-030 #2 | GPIO 34 | Current Ch2 (Living) | âœ… Working |
+| SCT-013-030 #3 | GPIO 33 | Current Ch3 (Bedroom) | âœ… Working |
+| SCT-013-030 #4 | GPIO 32 | Current Ch4 (Others) | âœ… Working |
 
 ### ESP32-CAM
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Live Streaming | ✅ Working | 3 FPS via HTTP |
-| Motion Detection | ✅ Working | With person detection |
-| Snapshot Capture | ✅ Working | Manual trigger |
-| Firebase Upload | ✅ Working | Auto-save on motion |
-| Timelapse | ✅ Working | 1 shot per minute |
+| Live Streaming | âœ… Working | 3 FPS via HTTP |
+| Snapshot Capture | âœ… Working | Manual trigger |
+| Firebase Upload | âœ… Working | Auto-save on motion |
 
 ---
 
-## 🔐 AUTHENTICATION FEATURES
+## ðŸ” AUTHENTICATION FEATURES
 
 | Feature | Method | Status |
 |---------|--------|--------|
-| Email/Password Register | `POST /auth/register` | ✅ Complete |
-| Email/Password Login | `POST /auth/login` | ✅ Complete |
-| Google OAuth | Firebase + Backend | ✅ Complete |
-| Two-Factor Auth (2FA) | Email OTP | ✅ Complete |
-| Forgot Password | Email Link | ✅ Complete |
-| Password Reset | Token-based | ✅ Complete |
-| Token Refresh | JWT Auto-refresh | ✅ Complete |
-| Sign Out | Clear tokens | ✅ Complete |
+| Email/Password Register | `POST /auth/register` | âœ… Complete |
+| Email/Password Login | `POST /auth/login` | âœ… Complete |
+| Google OAuth | Firebase + Backend | âœ… Complete |
+| Two-Factor Auth (2FA) | Email OTP | âœ… Complete |
+| Forgot Password | Email Link | âœ… Complete |
+| Password Reset | Token-based | âœ… Complete |
+| Token Refresh | JWT Auto-refresh | âœ… Complete |
+| Sign Out | Clear tokens | âœ… Complete |
 
 ---
 
-## 📡 MQTT COMMUNICATION
+## ðŸ“¡ MQTT COMMUNICATION
 
 ### Broker Configuration
 | Setting | Value |
@@ -212,95 +202,91 @@
 
 ### Topic Structure
 ```
-home/device/{device_id}/set    → Command (ON/OFF)
-home/device/{device_id}/state  → Status Response
-home/device/{device_id}/status → Online Status
+home/device/{device_id}/set    â†’ Command (ON/OFF)
+home/device/{device_id}/state  â†’ Status Response
+home/device/{device_id}/status â†’ Online Status
 ```
 
 ### Fallback Options
 | Broker | Type | Port | Status |
 |--------|------|------|--------|
-| HiveMQ Cloud | TLS | 8883 | ✅ Primary |
-| broker.emqx.io | WebSocket | 8083 | ✅ Backup |
-| test.mosquitto.org | TCP | 1883 | ✅ Testing |
-| localhost | TCP | 1883 | ✅ Development |
+| HiveMQ Cloud | TLS | 8883 | âœ… Primary |
+| broker.emqx.io | WebSocket | 8083 | âœ… Backup |
+| test.mosquitto.org | TCP | 1883 | âœ… Testing |
+| localhost | TCP | 1883 | âœ… Development |
 
 ---
 
-## 🔥 FIREBASE INTEGRATION
+## ðŸ”¥ FIREBASE INTEGRATION
 
 | Service | Purpose | Status |
 |---------|---------|--------|
-| **Firebase Auth** | User Authentication | ✅ Active |
-| **Realtime Database** | Sensor Data, Device State | ✅ Active |
-| **Cloud Storage** | Camera Snapshots | ✅ Active |
+| **Firebase Auth** | User Authentication | âœ… Active |
+| **Realtime Database** | Sensor Data, Device State | âœ… Active |
 
 ### Database Structure
 ```
 firebase-rtdb/
-├── users/
-│   └── {uid}/
-│       ├── profile/
-│       ├── devices/
-│       ├── sensors/
-│       │   └── energy/
-│       │       ├── voltage
-│       │       ├── current
-│       │       ├── power
-│       │       └── energy
-│       ├── camera_events/
-│       │   └── {date}/
-│       │       └── motion/
-│       └── esp32cam/
-│           ├── ip
-│           └── status
-└── alerts/
+â”œâ”€â”€ users/
+â”‚   â””â”€â”€ {uid}/
+â”‚       â”œâ”€â”€ profile/
+â”‚       â”œâ”€â”€ devices/
+â”‚       â”œâ”€â”€ sensors/
+â”‚       â”‚   â””â”€â”€ energy/
+â”‚       â”‚       â”œâ”€â”€ voltage
+â”‚       â”‚       â”œâ”€â”€ current
+â”‚       â”‚       â”œâ”€â”€ power
+â”‚       â”‚       â””â”€â”€ energy
+â”‚       â”‚   â””â”€â”€ {date}/
+â”‚       â”‚       â””â”€â”€ motion/
+â”‚           â”œâ”€â”€ ip
+â”‚           â””â”€â”€ status
+â””â”€â”€ alerts/
 ```
 
 ---
 
-## 📊 ENERGY MONITORING
+## ðŸ“Š ENERGY MONITORING
 
 | Metric | Source | Unit | Status |
 |--------|--------|------|--------|
-| Voltage | ZMPT101B | Volts (V) | ✅ Live |
-| Current | SCT-013-030 | Amps (A) | ✅ Live |
-| Power | Calculated | Watts (W) | ✅ Live |
-| Energy | Accumulated | kWh | ✅ Live |
-| Bill Estimate | Calculated | PHP | ✅ Live |
+| Voltage | ZMPT101B | Volts (V) | âœ… Live |
+| Current | SCT-013-030 | Amps (A) | âœ… Live |
+| Power | Calculated | Watts (W) | âœ… Live |
+| Energy | Accumulated | kWh | âœ… Live |
+| Bill Estimate | Calculated | PHP | âœ… Live |
 
 ### Billing Calculation
-- Rate: ₱11.85/kWh (Meralco rate)
+- Rate: â‚±11.85/kWh (Meralco rate)
 - Projected Monthly: Auto-calculated
 - Real-time Updates: Every second
 
 ---
 
-## 🔔 NOTIFICATION SYSTEM
+## ðŸ”” NOTIFICATION SYSTEM
 
 | Type | Trigger | Status |
 |------|---------|--------|
-| Device Toggle | ON/OFF action | ✅ Working |
-| Device Add/Remove | CRUD operations | ✅ Working |
-| Motion Detected | Camera motion | ✅ Working |
-| Energy Alert | Threshold exceeded | ✅ Working |
-| Login Activity | Sign-in events | ✅ Working |
-| Password Change | Security events | ✅ Working |
-| Profile Update | Account changes | ✅ Working |
+| Device Toggle | ON/OFF action | âœ… Working |
+| Device Add/Remove | CRUD operations | âœ… Working |
+| Energy Alert | Threshold exceeded | âœ… Working |
+| Login Activity | Sign-in events | âœ… Working |
+| Password Change | Security events | âœ… Working |
+| Profile Update | Account changes | âœ… Working |
 
 ---
 
-## 🎨 UI/UX FEATURES
+## ðŸŽ¨ UI/UX FEATURES
 
 | Feature | Status |
 |---------|--------|
-| Dark/Light Theme | ✅ Implemented |
-| Responsive Design | ✅ Mobile/Tablet/Desktop |
-| Smooth Animations | ✅ Page transitions |
-| Loading States | ✅ Shimmer effects |
-| Error Handling | ✅ User-friendly messages |
-| Pull-to-Refresh | ✅ All list pages |
-| Offline Mode | ✅ Cached data |
+| Dark/Light Theme | âœ… Implemented |
+| Responsive Design | âœ… Mobile/Tablet/Desktop |
+| Smooth Animations | âœ… Page transitions |
+| Loading States | âœ… Shimmer effects |
+| Error Handling | âœ… User-friendly messages |
+| Pull-to-Refresh | âœ… All list pages |
+| Offline Mode | âœ… Cached data |
 
 ### Theme Colors
 | Color | Hex | Usage |
@@ -315,7 +301,7 @@ firebase-rtdb/
 
 ---
 
-## 📦 DEPENDENCIES
+## ðŸ“¦ DEPENDENCIES
 
 ### Flutter Packages
 | Package | Version | Purpose |
@@ -328,7 +314,6 @@ firebase-rtdb/
 | google_sign_in | ^6.2.1 | Google OAuth |
 | http | ^1.4.0 | HTTP Client |
 | shared_preferences | ^2.3.2 | Local Storage |
-| video_player | ^2.6.0 | Video Playback |
 | fl_chart | ^0.69.0 | Charts/Graphs |
 | connectivity_plus | ^6.0.3 | Network Status |
 | cached_network_image | ^3.3.1 | Image Caching |
@@ -353,37 +338,36 @@ firebase-rtdb/
 
 ---
 
-## 🚀 DEPLOYMENT
+## ðŸš€ DEPLOYMENT
 
 ### Backend (Heroku)
 | Item | Status |
 |------|--------|
-| Procfile | ✅ Configured |
-| requirements.txt | ✅ Complete |
+| Procfile | âœ… Configured |
+| requirements.txt | âœ… Complete |
 | runtime.txt | Python 3.11 |
-| Environment Variables | ✅ Set |
-| CORS | ✅ All origins allowed |
+| Environment Variables | âœ… Set |
+| CORS | âœ… All origins allowed |
 
 ### Flutter Web
 | Item | Status |
 |------|--------|
-| Build Config | ✅ Ready |
-| Firebase Hosting | ✅ Optional |
-| PWA Support | ✅ Enabled |
+| Build Config | âœ… Ready |
+| Firebase Hosting | âœ… Optional |
+| PWA Support | âœ… Enabled |
 
 ### ESP32 Firmware
 | File | Purpose | Status |
 |------|---------|--------|
-| `esp32_smart_home.ino` | Unified firmware | ✅ Ready |
-| `esp32_energy_monitor.ino` | Energy monitoring | ✅ Ready |
-| `esp32cam_upload.ino` | Camera module | ✅ Ready |
-| `wifi_config_template.h` | WiFi configuration | ✅ Template |
+| `esp32_smart_home.ino` | Unified firmware | âœ… Ready |
+| `esp32_energy_monitor.ino` | Energy monitoring | âœ… Ready |
+| `wifi_config_template.h` | WiFi configuration | âœ… Template |
 
 ---
 
-## 📋 SUMMARY
+## ðŸ“‹ SUMMARY
 
-### ✅ COMPLETED FEATURES (100%)
+### âœ… COMPLETED FEATURES (100%)
 
 1. **User Authentication**
    - Email/Password Registration & Login
@@ -406,10 +390,7 @@ firebase-rtdb/
    - kWh Accumulation
    - Bill Estimation (Philippine rates)
 
-4. **Camera System**
    - Live Streaming (3 FPS)
-   - Motion Detection
-   - Person Detection
    - Snapshot Capture
    - Firebase Storage Upload
    - Event History
@@ -418,7 +399,6 @@ firebase-rtdb/
    - Activity Notifications
    - Energy Threshold Alerts
    - Device Control Logs
-   - Motion Detection Alerts
 
 6. **User Experience**
    - Dark/Light Theme
@@ -429,7 +409,7 @@ firebase-rtdb/
 
 ---
 
-## 🎯 FINAL STATUS: **PRODUCTION READY** ✅
+## ðŸŽ¯ FINAL STATUS: **PRODUCTION READY** âœ…
 
 Ang BRIX Smart Home IoT System ay **100% complete** at ready for deployment!
 

@@ -207,23 +207,26 @@ class SmoothNetworkImage extends StatelessWidget {
         fit: fit,
         placeholder: (context, url) => Shimmer.fromColors(
           baseColor: isDark ? AppColors.darkBgCard : Colors.grey.shade300,
-          highlightColor: isDark ? AppColors.darkBgSecondary : Colors.grey.shade100,
+          highlightColor:
+              isDark ? AppColors.darkBgSecondary : Colors.grey.shade100,
           child: Container(
             width: width,
             height: height,
             color: isDark ? AppColors.darkBgCard : Colors.grey.shade300,
           ),
         ),
-        errorWidget: (context, url, error) => errorWidget ?? Container(
-          width: width,
-          height: height,
-          color: isDark ? AppColors.darkBgCard : Colors.grey.shade200,
-          child: Icon(
-            Icons.broken_image_rounded,
-            color: Colors.grey.shade500,
-            size: 40,
-          ),
-        ),
+        errorWidget: (context, url, error) =>
+            errorWidget ??
+            Container(
+              width: width,
+              height: height,
+              color: isDark ? AppColors.darkBgCard : Colors.grey.shade200,
+              child: Icon(
+                Icons.broken_image_rounded,
+                color: Colors.grey.shade500,
+                size: 40,
+              ),
+            ),
       ),
     );
   }
@@ -386,13 +389,13 @@ class _SmoothButtonState extends State<SmoothButton>
                 gradient: LinearGradient(
                   colors: [
                     buttonColor,
-                    buttonColor.withOpacity(0.8),
+                    buttonColor.withValues(alpha: 0.8),
                   ],
                 ),
                 borderRadius: BorderRadius.circular(widget.borderRadius),
                 boxShadow: [
                   BoxShadow(
-                    color: buttonColor.withOpacity(0.3),
+                    color: buttonColor.withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -450,7 +453,7 @@ class SmoothSwitch extends StatelessWidget {
           boxShadow: [
             if (value)
               BoxShadow(
-                color: active.withOpacity(0.4),
+                color: active.withValues(alpha: 0.4),
                 blurRadius: 8,
                 spreadRadius: 1,
               ),
@@ -515,7 +518,7 @@ class SmoothEmptyState extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: AppColors.primaryBlue.withOpacity(0.1),
+                  color: AppColors.primaryBlue.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -665,4 +668,3 @@ class SmoothSnackbar {
 }
 
 enum SnackbarType { success, error, warning, info }
-

@@ -1,6 +1,5 @@
 // filepath: c:\Users\Ivy\OneDrive\Desktop\New folder\brix\as_flutter_project\lib\services\connectivity_service.dart
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 

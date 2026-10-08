@@ -39,12 +39,12 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
     super.initState();
     // Initialize form key
     _formKey = GlobalKey<FormState>();
-    
+
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat();
-    
+
     _pulseAnimation = Tween<double>(
       begin: 1.0,
       end: 1.1,
@@ -82,7 +82,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
 
     try {
       Map<String, dynamic>? result;
-      
+
       if (isLogin) {
         result = await _authService.signInWithEmail(
           _emailController.text.trim(),
@@ -100,13 +100,12 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
         if (isLogin) {
           _showSnackBar('Welcome back!');
           // Add notification for email sign-in
-          NotificationService().addEmailSignInNotification(_emailController.text.trim());
+          NotificationService()
+              .addEmailSignInNotification(_emailController.text.trim());
           // Navigate to home screen only on login
           if (mounted) {
             Navigator.pushReplacement(
-              context, 
-              MaterialPageRoute(builder: (_) => const HomeScreen())
-            );
+                context, MaterialPageRoute(builder: (_) => const HomeScreen()));
           }
         } else {
           // Registration success - show message and switch to login
@@ -128,8 +127,12 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
       }
     } catch (e) {
       String errorMsg = e.toString();
-      if (e.toString().contains('timed out') || e.toString().contains('SocketException')) {
-        errorMsg = 'Connection timeout - Backend server may be offline. Make sure to start the backend server.';
+      if (e.toString().contains('timed out') ||
+          e.toString().contains('SocketException') ||
+          e.toString().contains('ClientException') ||
+          e.toString().contains('Failed to fetch')) {
+        errorMsg =
+            'Backend server is unavailable or the API URL is incorrect. Please check the backend configuration or start the backend service.';
       }
       _showSnackBar('Error: $errorMsg', isError: true);
     } finally {
@@ -170,14 +173,18 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                         child: Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [AppColors.primaryBlue, AppColors.electricPurple],
+                              colors: [
+                                AppColors.primaryBlue,
+                                AppColors.electricPurple
+                              ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
                             borderRadius: BorderRadius.circular(25),
                             boxShadow: [
                               BoxShadow(
-                                color: AppColors.primaryBlue.withOpacity(0.4),
+                                color: AppColors.primaryBlue
+                                    .withValues(alpha: 0.4),
                                 blurRadius: 25,
                                 spreadRadius: 5,
                               ),
@@ -193,9 +200,9 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                       );
                     },
                   ),
-                  
+
                   const SizedBox(height: 20),
-                  
+
                   // Title
                   ShaderMask(
                     shaderCallback: (bounds) => const LinearGradient(
@@ -213,18 +220,18 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 10),
-                  
+
                   Text(
                     "Control your home with intelligence",
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                       fontWeight: FontWeight.w300,
                     ),
                   ),
-                  
+
                   const SizedBox(height: 40),
 
                   // Auth Form Card
@@ -248,11 +255,12 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                     child: Container(
                       key: ValueKey<bool>(isLogin),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.98),
+                        color: Colors.white.withValues(alpha: 0.98),
                         borderRadius: BorderRadius.circular(25),
                         boxShadow: [
                           BoxShadow(
-                            color: AppColors.primaryBlue.withOpacity(0.15),
+                            color:
+                                AppColors.primaryBlue.withValues(alpha: 0.15),
                             blurRadius: 25,
                             spreadRadius: 5,
                             offset: const Offset(0, 10),
@@ -274,17 +282,17 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                 color: AppColors.darkBg,
                               ),
                             ),
-                            
+
                             Text(
-                              isLogin 
-                                ? "Sign in to continue" 
-                                : "Join the smart home revolution",
+                              isLogin
+                                  ? "Sign in to continue"
+                                  : "Join the smart home revolution",
                               style: TextStyle(
                                 fontSize: 14,
                                 color: Colors.grey.shade600,
                               ),
                             ),
-                            
+
                             const SizedBox(height: 30),
 
                             // Name field (registration only)
@@ -293,8 +301,8 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                 controller: _nameController,
                                 label: "Full Name",
                                 icon: Icons.person_outline,
-                                validator: (value) => 
-                                  value!.isEmpty ? "Enter your name" : null,
+                                validator: (value) =>
+                                    value!.isEmpty ? "Enter your name" : null,
                               ),
                               const SizedBox(height: 16),
                             ],
@@ -307,13 +315,14 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                               keyboardType: TextInputType.emailAddress,
                               validator: (value) {
                                 if (value!.isEmpty) return "Enter your email";
-                                if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
+                                if (!RegExp(r'^[^@]+@[^@]+\.[^@]+')
+                                    .hasMatch(value)) {
                                   return "Enter a valid email";
                                 }
                                 return null;
                               },
                             ),
-                            
+
                             const SizedBox(height: 16),
 
                             // Password field
@@ -324,16 +333,16 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                               obscureText: _obscurePassword,
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  _obscurePassword 
-                                    ? Icons.visibility_off 
-                                    : Icons.visibility,
+                                  _obscurePassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
                                   color: AppColors.primaryBlueDark,
                                 ),
-                                onPressed: () => setState(() => 
-                                  _obscurePassword = !_obscurePassword),
+                                onPressed: () => setState(
+                                    () => _obscurePassword = !_obscurePassword),
                               ),
                               validator: (value) =>
-                                value!.length < 6 ? "Min 6 characters" : null,
+                                  value!.length < 6 ? "Min 6 characters" : null,
                             ),
 
                             // Confirm password (registration only)
@@ -346,18 +355,18 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                 obscureText: _obscureConfirm,
                                 suffixIcon: IconButton(
                                   icon: Icon(
-                                    _obscureConfirm 
-                                      ? Icons.visibility_off 
-                                      : Icons.visibility,
+                                    _obscureConfirm
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
                                     color: AppColors.primaryBlueDark,
                                   ),
-                                  onPressed: () => setState(() => 
-                                    _obscureConfirm = !_obscureConfirm),
+                                  onPressed: () => setState(
+                                      () => _obscureConfirm = !_obscureConfirm),
                                 ),
-                                validator: (value) => 
-                                  value != _passwordController.text 
-                                    ? "Passwords don't match" 
-                                    : null,
+                                validator: (value) =>
+                                    value != _passwordController.text
+                                        ? "Passwords don't match"
+                                        : null,
                               ),
                             ],
 
@@ -371,7 +380,8 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                   onPressed: () {
                                     Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (_) => const ForgotPasswordPage(),
+                                        builder: (_) =>
+                                            const ForgotPasswordPage(),
                                       ),
                                     );
                                   },
@@ -395,7 +405,8 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.primaryBlue,
                                   foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(15),
                                   ),
@@ -403,21 +414,22 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                 ),
                                 onPressed: isLoading ? null : _handleEmailAuth,
                                 child: isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation(Colors.white),
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation(
+                                              Colors.white),
+                                        ),
+                                      )
+                                    : Text(
+                                        isLogin ? "Sign In" : "Create Account",
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
-                                    )
-                                  : Text(
-                                      isLogin ? "Sign In" : "Create Account",
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
                               ),
                             ),
 
@@ -430,7 +442,8 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                   child: Divider(color: Colors.grey.shade400),
                                 ),
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16),
                                   child: Text(
                                     "OR",
                                     style: TextStyle(
@@ -452,59 +465,104 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                               width: double.infinity,
                               child: OutlinedButton(
                                 style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(15),
                                   ),
                                   side: BorderSide(color: Colors.grey.shade300),
                                   backgroundColor: Colors.grey.shade50,
                                 ),
-                                onPressed: isLoading ? null : () async {
-                                  setState(() => isLoading = true);
-                                  try {
-                                    if (kIsWeb) {
-                                      // Web: redirect via backend OAuth endpoint
-                                      final result = await _authService.signInWithGoogle();
-                                      if (result != null && result['success'] == true) {
-                                        // Check if 2FA is required
-                                        if (result['requires2FA'] == true) {
-                                          // TODO: Navigate to 2FA page
-                                          _showSnackBar('2FA required - redirecting...', isError: false);
-                                          // Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GoogleSignIn2FAPage()));
-                                        } else {
-                                          _showSnackBar('Google sign-in successful!');
-                                          // Add notification for Google sign-in
-                                          final userEmail = result['user']?['email'] ?? 'Google User';
-                                          NotificationService().addGoogleSignInNotification(userEmail);
-                                          if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+                                onPressed: isLoading
+                                    ? null
+                                    : () async {
+                                        setState(() => isLoading = true);
+                                        try {
+                                          if (kIsWeb) {
+                                            // Web: redirect via backend OAuth endpoint
+                                            final result = await _authService
+                                                .signInWithGoogle();
+                                            if (result != null &&
+                                                result['success'] == true) {
+                                              // Check if 2FA is required
+                                              if (result['requires2FA'] ==
+                                                  true) {
+                                                // TODO: Navigate to 2FA page
+                                                _showSnackBar(
+                                                    '2FA required - redirecting...',
+                                                    isError: false);
+                                                // Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GoogleSignIn2FAPage()));
+                                              } else {
+                                                _showSnackBar(
+                                                    'Google sign-in successful!');
+                                                // Add notification for Google sign-in
+                                                final userEmail = result['user']
+                                                        ?['email'] ??
+                                                    'Google User';
+                                                NotificationService()
+                                                    .addGoogleSignInNotification(
+                                                        userEmail);
+                                                if (mounted) {
+                                                  Navigator.pushReplacement(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                          builder: (_) =>
+                                                              const HomeScreen()));
+                                                }
+                                              }
+                                            } else {
+                                              _showSnackBar(
+                                                  result?['error'] ??
+                                                      'Google sign-in failed',
+                                                  isError: true);
+                                            }
+                                          } else {
+                                            // Mobile: use GoogleSignIn2FAService which signs in with Firebase and informs backend
+                                            final mobileRes =
+                                                await GoogleSignIn2FAService()
+                                                    .signInWithGoogle();
+                                            if (mobileRes['success'] == true) {
+                                              if (mobileRes['requires2FA'] ==
+                                                  true) {
+                                                // navigate to 2FA page
+                                                Navigator.of(context).push(
+                                                    MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            const GoogleSignIn2FAPage()));
+                                              } else {
+                                                _showSnackBar(
+                                                    'Google sign-in successful!');
+                                                // Add notification for Google sign-in
+                                                final userEmail =
+                                                    mobileRes['email'] ??
+                                                        'Google User';
+                                                NotificationService()
+                                                    .addGoogleSignInNotification(
+                                                        userEmail);
+                                                if (mounted) {
+                                                  Navigator.pushReplacement(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                          builder: (_) =>
+                                                              const HomeScreen()));
+                                                }
+                                              }
+                                            } else {
+                                              _showSnackBar(
+                                                  mobileRes['message'] ??
+                                                      'Google sign-in failed',
+                                                  isError: true);
+                                            }
+                                          }
+                                        } catch (e) {
+                                          _showSnackBar('Error: $e',
+                                              isError: true);
+                                        } finally {
+                                          if (mounted) {
+                                            setState(() => isLoading = false);
+                                          }
                                         }
-                                      } else {
-                                        _showSnackBar(result?['error'] ?? 'Google sign-in failed', isError: true);
-                                      }
-                                    } else {
-                                      // Mobile: use GoogleSignIn2FAService which signs in with Firebase and informs backend
-                                      final mobileRes = await GoogleSignIn2FAService().signInWithGoogle();
-                                      if (mobileRes['success'] == true) {
-                                        if (mobileRes['requires2FA'] == true) {
-                                          // navigate to 2FA page
-                                          Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GoogleSignIn2FAPage()));
-                                        } else {
-                                          _showSnackBar('Google sign-in successful!');
-                                          // Add notification for Google sign-in
-                                          final userEmail = mobileRes['email'] ?? 'Google User';
-                                          NotificationService().addGoogleSignInNotification(userEmail);
-                                          if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
-                                        }
-                                      } else {
-                                        _showSnackBar(mobileRes['message'] ?? 'Google sign-in failed', isError: true);
-                                      }
-                                    }
-                                  } catch (e) {
-                                    _showSnackBar('Error: $e', isError: true);
-                                  } finally {
-                                    if (mounted) setState(() => isLoading = false);
-                                  }
-                                },
+                                      },
                                 child: SizedBox(
                                   width: double.infinity,
                                   child: Row(
@@ -542,24 +600,25 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                               children: [
                                 Flexible(
                                   child: Text(
-                                    isLogin 
-                                      ? "Don't have an account?" 
-                                      : "Already have an account?",
-                                    style: TextStyle(color: Colors.grey.shade600),
+                                    isLogin
+                                        ? "Don't have an account?"
+                                        : "Already have an account?",
+                                    style:
+                                        TextStyle(color: Colors.grey.shade600),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                                 Flexible(
                                   child: TextButton(
-                                    onPressed: isLoading 
-                                      ? null 
-                                      : () {
-                                        // Reset form key to avoid duplicate GlobalKey errors
-                                        setState(() {
-                                          isLogin = !isLogin;
-                                          _formKey = GlobalKey<FormState>();
-                                        });
-                                      },
+                                    onPressed: isLoading
+                                        ? null
+                                        : () {
+                                            // Reset form key to avoid duplicate GlobalKey errors
+                                            setState(() {
+                                              isLogin = !isLogin;
+                                              _formKey = GlobalKey<FormState>();
+                                            });
+                                          },
                                     child: Text(
                                       isLogin ? "Sign Up" : "Sign In",
                                       style: const TextStyle(

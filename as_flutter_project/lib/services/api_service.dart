@@ -22,7 +22,8 @@ class ApiResponse<T> {
   });
 
   @override
-  String toString() => 'ApiResponse(success: $success, statusCode: $statusCode, responseTime: ${responseTimeMs}ms)';
+  String toString() =>
+      'ApiResponse(success: $success, statusCode: $statusCode, responseTime: ${responseTimeMs}ms)';
 }
 
 /// Base API service with standardized error handling, retry logic, and logging
@@ -43,7 +44,8 @@ abstract class ApiService {
       final prefs = await SharedPreferences.getInstance();
       _accessToken = prefs.getString('access_token');
       _refreshToken = prefs.getString('refresh_token');
-      debugPrint('🔐 ApiService initialized with token: ${_accessToken != null ? 'present' : 'missing'}');
+      debugPrint(
+          '🔐 ApiService initialized with token: ${_accessToken != null ? 'present' : 'missing'}');
     } catch (e) {
       debugPrint('⚠️ ApiService initialization error: $e');
     }
@@ -178,7 +180,8 @@ abstract class ApiService {
     int retryCount = 0,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: queryParams);
+      final uri =
+          Uri.parse('$baseUrl$endpoint').replace(queryParameters: queryParams);
       final headers = _buildHeaders();
 
       debugPrint('📤 [$method] $endpoint (retry: $retryCount)');
@@ -188,27 +191,35 @@ abstract class ApiService {
 
       switch (method) {
         case 'GET':
-          response = await http.get(uri, headers: headers).timeout(requestTimeout);
+          response =
+              await http.get(uri, headers: headers).timeout(requestTimeout);
         case 'POST':
-          response = await http.post(
-            uri,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          ).timeout(requestTimeout);
+          response = await http
+              .post(
+                uri,
+                headers: headers,
+                body: body != null ? jsonEncode(body) : null,
+              )
+              .timeout(requestTimeout);
         case 'PATCH':
-          response = await http.patch(
-            uri,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          ).timeout(requestTimeout);
+          response = await http
+              .patch(
+                uri,
+                headers: headers,
+                body: body != null ? jsonEncode(body) : null,
+              )
+              .timeout(requestTimeout);
         case 'DELETE':
-          response = await http.delete(uri, headers: headers).timeout(requestTimeout);
+          response =
+              await http.delete(uri, headers: headers).timeout(requestTimeout);
         default:
           throw Exception('Unsupported method: $method');
       }
 
-      final responseTimeMs = DateTime.now().difference(startTime).inMilliseconds;
-      debugPrint('📥 [$method] $endpoint → ${response.statusCode} (${responseTimeMs}ms)');
+      final responseTimeMs =
+          DateTime.now().difference(startTime).inMilliseconds;
+      debugPrint(
+          '📥 [$method] $endpoint → ${response.statusCode} (${responseTimeMs}ms)');
 
       // Handle 401 - try token refresh
       if (response.statusCode == 401 && retryCount < 1) {
@@ -256,7 +267,7 @@ abstract class ApiService {
           responseTimeMs: responseTimeMs,
         );
       }
-    } on TimeoutException catch (e) {
+    } on TimeoutException {
       debugPrint('⏱️ Request timeout after $requestTimeout');
 
       if (retryCount < maxRetries) {
@@ -297,4 +308,3 @@ abstract class ApiService {
     }
   }
 }
-

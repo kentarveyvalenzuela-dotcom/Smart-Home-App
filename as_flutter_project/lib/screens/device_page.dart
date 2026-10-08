@@ -17,7 +17,8 @@ class DevicePage extends StatefulWidget {
   State<DevicePage> createState() => _DevicePageState();
 }
 
-class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMixin {
+class _DevicePageState extends State<DevicePage>
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true; // Keep this page alive when switching tabs
 
@@ -41,12 +42,42 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
   // GPIO Pin to ESP32 device name mapping
   // IMPORTANT: These must match the registerDevice() calls in esp32_smart_home.ino
   final List<Map<String, dynamic>> pinSlots = [
-    {'pin': 23, 'label': 'Sala (Living Room)', 'type': 'light', 'mqtt_id': 'sala'},
-    {'pin': 22, 'label': 'Kwarto (Bedroom)', 'type': 'light', 'mqtt_id': 'kwarto'},
-    {'pin': 21, 'label': 'Kusina (Kitchen)', 'type': 'appliance', 'mqtt_id': 'kusina'},
-    {'pin': 19, 'label': 'Banyo (Bathroom)', 'type': 'light', 'mqtt_id': 'banyo'},
-    {'pin': 18, 'label': 'Garahe (Garage)', 'type': 'appliance', 'mqtt_id': 'garahe'},
-    {'pin': 17, 'label': 'Labas (Outside)', 'type': 'light', 'mqtt_id': 'labas'},
+    {
+      'pin': 23,
+      'label': 'Sala (Living Room)',
+      'type': 'light',
+      'mqtt_id': 'sala'
+    },
+    {
+      'pin': 22,
+      'label': 'Kwarto (Bedroom)',
+      'type': 'light',
+      'mqtt_id': 'kwarto'
+    },
+    {
+      'pin': 21,
+      'label': 'Kusina (Kitchen)',
+      'type': 'appliance',
+      'mqtt_id': 'kusina'
+    },
+    {
+      'pin': 19,
+      'label': 'Banyo (Bathroom)',
+      'type': 'light',
+      'mqtt_id': 'banyo'
+    },
+    {
+      'pin': 18,
+      'label': 'Garahe (Garage)',
+      'type': 'appliance',
+      'mqtt_id': 'garahe'
+    },
+    {
+      'pin': 17,
+      'label': 'Labas (Outside)',
+      'type': 'light',
+      'mqtt_id': 'labas'
+    },
   ];
 
   @override
@@ -55,7 +86,7 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
     _sync = SyncService(baseUrl: ConfigService().backendUrl);
     _connectionState = _mqtt.currentConnectionState;
     _errorMessage = _mqtt.currentError;
-    
+
     _connectionSub = _mqtt.connectionState.listen((state) {
       if (mounted) {
         setState(() {
@@ -66,7 +97,7 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
         });
       }
     });
-    
+
     _errorSub = _mqtt.errors.listen((error) {
       if (mounted) {
         setState(() {
@@ -74,9 +105,9 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
         });
       }
     });
-    
+
     _messageSub = _mqtt.messages.listen(_handleIncomingMessage);
-    
+
     // Initialize app on startup
     _initializeApp();
   }
@@ -94,7 +125,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
     // Show cached devices immediately
     if (mounted && appliances.isNotEmpty) {
       setState(() {
-        _backendStatus = 'Loaded ${appliances.length} cached devices, syncing...';
+        _backendStatus =
+            'Loaded ${appliances.length} cached devices, syncing...';
       });
       _resubscribeAppliances();
     }
@@ -112,7 +144,7 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
 
   Future<void> _syncWithBackend() async {
     if (!mounted) return;
-    
+
     setState(() {
       _isLoadingDevices = true;
     });
@@ -137,17 +169,21 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
 
       if (devices != null && devices.isNotEmpty) {
         debugPrint('[SYNC] Got ${devices.length} devices from backend');
-        debugPrint('[SYNC] Deleted device IDs count: ${_deletedDeviceIds.length}');
+        debugPrint(
+            '[SYNC] Deleted device IDs count: ${_deletedDeviceIds.length}');
 
         // Filter out deleted devices
         final filteredDevices = devices.where((d) {
-          final deviceId = d['device_id'] as String? ?? d['mqtt_client_id'] as String? ?? '';
+          final deviceId =
+              d['device_id'] as String? ?? d['mqtt_client_id'] as String? ?? '';
           final backendId = d['backend_device_id'] as String? ?? '';
-          final isDeleted = _deletedDeviceIds.contains(deviceId) || _deletedDeviceIds.contains(backendId);
+          final isDeleted = _deletedDeviceIds.contains(deviceId) ||
+              _deletedDeviceIds.contains(backendId);
           return !isDeleted;
         }).toList();
 
-        debugPrint('[SYNC] ${filteredDevices.length} devices after filtering deleted');
+        debugPrint(
+            '[SYNC] ${filteredDevices.length} devices after filtering deleted');
 
         if (mounted) {
           setState(() {
@@ -247,7 +283,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
           final name = a['name'] as String? ?? '';
           final topic = a['topic'] as String? ?? '';
 
-          final isValid = deviceId.isNotEmpty && name.isNotEmpty && topic.isNotEmpty;
+          final isValid =
+              deviceId.isNotEmpty && name.isNotEmpty && topic.isNotEmpty;
           final isNotDeleted = !_deletedDeviceIds.contains(deviceId);
 
           if (!isValid) {
@@ -264,7 +301,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
           final deviceId = a['device_id'] as String? ?? '';
           final mqttId = a['mqtt_client_id'] as String? ?? deviceId;
 
-          if (topic.startsWith('device/') && !topic.startsWith('home/device/')) {
+          if (topic.startsWith('device/') &&
+              !topic.startsWith('home/device/')) {
             a['topic'] = 'home/device/$mqttId';
             a['device_id'] = mqttId;
             debugPrint('[CACHE] Migrated topic: $topic -> ${a['topic']}');
@@ -297,7 +335,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
       final key = uid != null ? 'appliances_$uid' : 'appliances';
       final encoded = appliances.map((ap) => _encodeAppliance(ap)).toList();
       await prefs.setStringList(key, encoded);
-      debugPrint('✅ Saved ${appliances.length} appliances to cache (key: $key)');
+      debugPrint(
+          '✅ Saved ${appliances.length} appliances to cache (key: $key)');
     } catch (e) {
       debugPrint('❌ Error saving cache: $e');
     }
@@ -314,19 +353,23 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
   void _handleIncomingMessage(ServiceMessage mqttMsg) {
     try {
       final topic = mqttMsg.topic;
-      final payload = MqttPublishPayload.bytesToStringAsString(mqttMsg.payload.payload.message);
-      
+      final payload = MqttPublishPayload.bytesToStringAsString(
+          mqttMsg.payload.payload.message);
+
       debugPrint('📨 [MQTT] Topic: $topic | Payload: "$payload"');
 
       final normalizedPayload = payload.trim().toUpperCase();
-      final isOn = ['ON', '1', 'TRUE', 'HIGH', '100', 'ACTIVE'].contains(normalizedPayload);
+      final isOn = ['ON', '1', 'TRUE', 'HIGH', '100', 'ACTIVE']
+          .contains(normalizedPayload);
 
       for (int i = 0; i < appliances.length; i++) {
         final deviceTopic = appliances[i]['topic'] as String;
-        
-        if (topic == '$deviceTopic/state' || topic == '$deviceTopic/status' || topic == deviceTopic) {
+
+        if (topic == '$deviceTopic/state' ||
+            topic == '$deviceTopic/status' ||
+            topic == deviceTopic) {
           _lastResponseTime[deviceTopic] = DateTime.now();
-          
+
           if (mounted && appliances[i]['isOn'] != isOn) {
             setState(() {
               appliances[i]['isOn'] = isOn;
@@ -350,7 +393,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
     // Print all appliances for debugging
     for (int i = 0; i < appliances.length; i++) {
       final ap = appliances[i];
-      debugPrint('[DEBUG] Appliance[$i]: topic="${ap['topic']}", device_id="${ap['device_id']}", name="${ap['name']}"');
+      debugPrint(
+          '[DEBUG] Appliance[$i]: topic="${ap['topic']}", device_id="${ap['device_id']}", name="${ap['name']}"');
     }
 
     try {
@@ -361,7 +405,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
 
       if (appliance.isEmpty) {
         debugPrint('[ERROR] Device not found! Looking for topic: $deviceTopic');
-        debugPrint('[ERROR] Available topics: ${appliances.map((a) => a['topic']).toList()}');
+        debugPrint(
+            '[ERROR] Available topics: ${appliances.map((a) => a['topic']).toList()}');
         return false;
       }
 
@@ -381,13 +426,15 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
 
       // ===== METHOD 1: DIRECT MQTT (FAST!) =====
       final mqttService = MqttService();
-      debugPrint('[DEBUG] MQTT connection state: ${mqttService.currentConnectionState}');
+      debugPrint(
+          '[DEBUG] MQTT connection state: ${mqttService.currentConnectionState}');
 
       if (mqttService.currentConnectionState == MqttConnectionState.connected) {
         try {
           // Publish to home/device/{id}/set topic with ON/OFF payload
           final topic = 'home/device/$mqttDeviceId/set';
-          debugPrint('[MQTT] Publishing to: $topic with payload: ${action.toUpperCase()}');
+          debugPrint(
+              '[MQTT] Publishing to: $topic with payload: ${action.toUpperCase()}');
           await mqttService.publish(topic, action.toUpperCase(), retain: false);
           debugPrint('[MQTT] Published successfully!');
 
@@ -416,7 +463,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
       }
 
       // ===== METHOD 2: BACKEND API (FALLBACK) =====
-      final backendDeviceId = appliance['backend_device_id'] as String? ?? mqttDeviceId;
+      final backendDeviceId =
+          appliance['backend_device_id'] as String? ?? mqttDeviceId;
 
       debugPrint('[API] Sending via backend: $backendDeviceId pin $pin');
 
@@ -449,9 +497,9 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
         final availableSlots = pinSlots
             .where((s) => !appliances.any((ap) => ap['pin'] == s['pin']))
             .toList();
-        
-        int? selectedPin = availableSlots.isNotEmpty 
-            ? (availableSlots.first['pin'] as int) 
+
+        int? selectedPin = availableSlots.isNotEmpty
+            ? (availableSlots.first['pin'] as int)
             : null;
 
         // Get the mqtt_id for the selected pin
@@ -459,7 +507,7 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
           if (pin == null) return '';
           final slot = pinSlots.firstWhere(
             (s) => s['pin'] == pin,
-            orElse: () => {'mqtt_id': 'relay${pin}'},
+            orElse: () => {'mqtt_id': 'relay$pin'},
           );
           return slot['mqtt_id'] as String? ?? 'relay$pin';
         }
@@ -495,7 +543,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.warning_amber, color: Colors.orange),
+                            const Icon(Icons.warning_amber,
+                                color: Colors.orange),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -508,7 +557,7 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                       )
                     else
                       DropdownButtonFormField<int>(
-                        value: selectedPin,
+                        initialValue: selectedPin,
                         isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Select Room/Location',
@@ -516,12 +565,12 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                         ),
                         items: availableSlots
                             .map((s) => DropdownMenuItem<int>(
-                              value: s['pin'] as int,
-                              child: Text(
-                                '${s['label']} (GPIO ${s['pin']})',
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ))
+                                  value: s['pin'] as int,
+                                  child: Text(
+                                    '${s['label']} (GPIO ${s['pin']})',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ))
                             .toList(),
                         onChanged: (v) => setStateDialog(() => selectedPin = v),
                       ),
@@ -559,7 +608,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                               ],
                             ),
                           ),
-                          Icon(Icons.check_circle, color: Colors.green.shade400, size: 18),
+                          Icon(Icons.check_circle,
+                              color: Colors.green.shade400, size: 18),
                         ],
                       ),
                     ),
@@ -572,73 +622,85 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                  onPressed: availableSlots.isEmpty ? null : () async {
-                    final name = nameController.text.trim();
-                    final mqttId = getMqttId(selectedPin);
+                  style:
+                      ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                  onPressed: availableSlots.isEmpty
+                      ? null
+                      : () async {
+                          final name = nameController.text.trim();
+                          final mqttId = getMqttId(selectedPin);
 
-                    if (name.isEmpty || selectedPin == null) {
-                      return;
-                    }
+                          if (name.isEmpty || selectedPin == null) {
+                            return;
+                          }
 
-                    // Show loading indicator
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Registering device...')),
-                    );
+                          // Show loading indicator
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Registering device...')),
+                          );
 
-                    // Try to register device with backend
-                    final authService = AuthService();
-                    final registerResult = await authService.registerDevice(
-                      deviceName: name,
-                      mqttClientId: mqttId,  // Use the correct MQTT ID
-                      location: '',
-                    );
+                          // Try to register device with backend
+                          final authService = AuthService();
+                          final registerResult =
+                              await authService.registerDevice(
+                            deviceName: name,
+                            mqttClientId: mqttId, // Use the correct MQTT ID
+                            location: '',
+                          );
 
-                    String? backendDeviceId;
-                    if (registerResult?['success'] == true) {
-                      backendDeviceId = registerResult?['device_id'] as String?;
-                      debugPrint('[OK] Device registered with backend: $backendDeviceId');
-                    } else {
-                      debugPrint('[WARN] Backend registration failed: ${registerResult?['error']}');
-                      // Continue anyway with local device
-                    }
+                          String? backendDeviceId;
+                          if (registerResult?['success'] == true) {
+                            backendDeviceId =
+                                registerResult?['device_id'] as String?;
+                            debugPrint(
+                                '[OK] Device registered with backend: $backendDeviceId');
+                          } else {
+                            debugPrint(
+                                '[WARN] Backend registration failed: ${registerResult?['error']}');
+                            // Continue anyway with local device
+                          }
 
-                    final newDevice = {
-                      'device_id': mqttId,  // Use the correct MQTT ID (sala, kwarto, etc.)
-                      'backend_device_id': backendDeviceId ?? mqttId,
-                      'name': name,
-                      'isOn': false,
-                      'topic': 'home/device/$mqttId',  // Correct topic
-                      'pin': selectedPin!,
-                      'mqtt_client_id': mqttId,
-                      'location': '',
-                      'is_online': false,
-                    };
+                          final newDevice = {
+                            'device_id':
+                                mqttId, // Use the correct MQTT ID (sala, kwarto, etc.)
+                            'backend_device_id': backendDeviceId ?? mqttId,
+                            'name': name,
+                            'isOn': false,
+                            'topic': 'home/device/$mqttId', // Correct topic
+                            'pin': selectedPin!,
+                            'mqtt_client_id': mqttId,
+                            'location': '',
+                            'is_online': false,
+                          };
 
-                    setState(() {
-                      appliances.add(newDevice);
-                    });
+                          setState(() {
+                            appliances.add(newDevice);
+                          });
 
-                    await _saveAppliancesToCache();
-                    _resubscribeAppliances();
+                          await _saveAppliancesToCache();
+                          _resubscribeAppliances();
 
-                    // Add notification for device add
-                    NotificationService().addDeviceAddNotification(name);
+                          // Add notification for device add
+                          NotificationService().addDeviceAddNotification(name);
 
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(registerResult?['success'] == true
-                            ? 'Device "$name" registered!'
-                            : 'Device "$name" added locally'),
-                          backgroundColor: registerResult?['success'] == true ? Colors.green : Colors.orange,
-                        ),
-                      );
-                    }
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(registerResult?['success'] == true
+                                    ? 'Device "$name" registered!'
+                                    : 'Device "$name" added locally'),
+                                backgroundColor:
+                                    registerResult?['success'] == true
+                                        ? Colors.green
+                                        : Colors.orange,
+                              ),
+                            );
+                          }
 
-                    Navigator.of(dialogContext).pop();
-                  },
+                          Navigator.of(dialogContext).pop();
+                        },
                   child: const Text('Add'),
                 ),
               ],
@@ -660,7 +722,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
             final isTurningOn = !appliances[index]['isOn'];
             final action = isTurningOn ? 'ON' : 'OFF';
             final topic = appliances[index]['topic'] as String;
-            final deviceName = appliances[index]['name'] as String? ?? 'Unknown Device';
+            final deviceName =
+                appliances[index]['name'] as String? ?? 'Unknown Device';
             final location = appliances[index]['location'] as String?;
 
             setState(() {
@@ -686,7 +749,7 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                   duration: const Duration(seconds: 3),
                 ),
               );
-              
+
               setState(() {
                 appliances[index]['isOn'] = !isTurningOn;
               });
@@ -706,7 +769,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                 )
               ],
             ),
-            child: const Icon(Icons.power_settings_new, color: Colors.white, size: 30),
+            child: const Icon(Icons.power_settings_new,
+                color: Colors.white, size: 30),
           ),
         ),
         title: Text(
@@ -721,7 +785,9 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              appliances[index]['isOn'] ? Icons.check_circle : Icons.highlight_off,
+              appliances[index]['isOn']
+                  ? Icons.check_circle
+                  : Icons.highlight_off,
               color: appliances[index]['isOn'] ? Colors.green : Colors.red,
             ),
             const SizedBox(width: 8),
@@ -736,8 +802,10 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                 }
               },
               itemBuilder: (context) => [
-                const PopupMenuItem<String>(value: 'edit', child: Text('Edit name')),
-                const PopupMenuItem<String>(value: 'delete', child: Text('Delete')),
+                const PopupMenuItem<String>(
+                    value: 'edit', child: Text('Edit name')),
+                const PopupMenuItem<String>(
+                    value: 'delete', child: Text('Delete')),
               ],
             ),
           ],
@@ -747,17 +815,20 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
   }
 
   Future<void> _editAppliance(int index) async {
-    final controller = TextEditingController(text: appliances[index]['name'] as String? ?? '');
+    final controller =
+        TextEditingController(text: appliances[index]['name'] as String? ?? '');
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Edit Device Name'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
+          decoration: const InputDecoration(
+              labelText: 'Name', border: OutlineInputBorder()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
             child: const Text('Save'),
@@ -776,16 +847,20 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
 
   Future<void> _deleteAppliance(int index) async {
     final deviceId = appliances[index]['device_id'] as String? ?? '';
-    final backendDeviceId = appliances[index]['backend_device_id'] as String? ?? deviceId;
+    final backendDeviceId =
+        appliances[index]['backend_device_id'] as String? ?? deviceId;
     final deviceName = appliances[index]['name'] as String? ?? 'Device';
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Device'),
-        content: Text('Remove "$deviceName" from your devices?\n\nThis will permanently delete it from your account.'),
+        content: Text(
+            'Remove "$deviceName" from your devices?\n\nThis will permanently delete it from your account.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
@@ -799,13 +874,16 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
       // Show loading
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Deleting device...'), duration: Duration(seconds: 1)),
+          const SnackBar(
+              content: Text('Deleting device...'),
+              duration: Duration(seconds: 1)),
         );
       }
 
       // 1. Delete from backend FIRST
       final authService = AuthService();
-      final deleteResult = await authService.deleteDevice(deviceId: backendDeviceId);
+      final deleteResult =
+          await authService.deleteDevice(deviceId: backendDeviceId);
 
       debugPrint('[DELETE] Backend result: $deleteResult');
 
@@ -836,7 +914,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('❌ Failed to delete: ${deleteResult['error'] ?? 'Unknown error'}'),
+              content: Text(
+                  '❌ Failed to delete: ${deleteResult['error'] ?? 'Unknown error'}'),
               backgroundColor: Colors.red,
               action: SnackBarAction(
                 label: 'Retry',
@@ -854,7 +933,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
     try {
       final prefs = await SharedPreferences.getInstance();
       final uid = await _getCurrentUserId();
-      final key = uid != null ? 'deleted_device_ids_$uid' : 'deleted_device_ids';
+      final key =
+          uid != null ? 'deleted_device_ids_$uid' : 'deleted_device_ids';
       await prefs.setStringList(key, _deletedDeviceIds.toList());
     } catch (e) {
       debugPrint('❌ Error saving deleted device IDs: $e');
@@ -865,11 +945,13 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
     try {
       final prefs = await SharedPreferences.getInstance();
       final uid = await _getCurrentUserId();
-      final key = uid != null ? 'deleted_device_ids_$uid' : 'deleted_device_ids';
+      final key =
+          uid != null ? 'deleted_device_ids_$uid' : 'deleted_device_ids';
       final ids = prefs.getStringList(key) ?? [];
       _deletedDeviceIds.clear(); // Clear first to avoid duplicates
       _deletedDeviceIds.addAll(ids);
-      debugPrint('[CACHE] Loaded ${_deletedDeviceIds.length} deleted device IDs for user $uid');
+      debugPrint(
+          '[CACHE] Loaded ${_deletedDeviceIds.length} deleted device IDs for user $uid');
     } catch (e) {
       debugPrint('❌ Error loading deleted device IDs: $e');
     }
@@ -894,7 +976,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
     try {
       final prefs = await SharedPreferences.getInstance();
       final uid = await _getCurrentUserId();
-      final key = uid != null ? 'deleted_device_ids_$uid' : 'deleted_device_ids';
+      final key =
+          uid != null ? 'deleted_device_ids_$uid' : 'deleted_device_ids';
       await prefs.remove(key);
       _deletedDeviceIds.clear();
       debugPrint('✅ Cleared deleted device IDs - all devices will show again');
@@ -916,7 +999,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
       final prefs = await SharedPreferences.getInstance();
       final uid = await _getCurrentUserId();
       final appliancesKey = uid != null ? 'appliances_$uid' : 'appliances';
-      final deletedKey = uid != null ? 'deleted_device_ids_$uid' : 'deleted_device_ids';
+      final deletedKey =
+          uid != null ? 'deleted_device_ids_$uid' : 'deleted_device_ids';
 
       await prefs.remove(appliancesKey);
       await prefs.remove(deletedKey);
@@ -957,14 +1041,14 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
 
   Map<String, dynamic> _decodeAppliance(String s) {
     final Map<String, dynamic> m = {};
-    
+
     for (final part in s.split(';')) {
       final idx = part.indexOf('=');
       if (idx <= 0) continue;
-      
+
       final k = part.substring(0, idx);
       final v = part.substring(idx + 1);
-      
+
       switch (k) {
         case 'name':
           m['name'] = v;
@@ -1029,8 +1113,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: isDark
-                ? [AppColors.darkBg, AppColors.darkBgSecondary]
-                : [AppColors.lightBg, Colors.white],
+                  ? [AppColors.darkBg, AppColors.darkBgSecondary]
+                  : [AppColors.lightBg, Colors.white],
             ),
           ),
           child: Padding(
@@ -1041,8 +1125,7 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                 _buildConnectionStatusCard(isDark),
 
                 // Error message
-                if (_errorMessage != null)
-                  _buildErrorCard(isDark),
+                if (_errorMessage != null) _buildErrorCard(isDark),
 
                 // Devices list
                 Expanded(
@@ -1056,7 +1139,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                             padding: const EdgeInsets.only(bottom: 100),
                             itemCount: appliances.length,
                             itemBuilder: (context, index) =>
-                                _buildModernApplianceCard(appliances[index], index, isDark),
+                                _buildModernApplianceCard(
+                                    appliances[index], index, isDark),
                           ),
                         ),
                 ),
@@ -1095,12 +1179,13 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isConnected
-            ? AppColors.electricGreen.withOpacity(0.3)
-            : Colors.orange.withOpacity(0.3),
+              ? AppColors.electricGreen.withValues(alpha: 0.3)
+              : Colors.orange.withValues(alpha: 0.3),
         ),
         boxShadow: [
           BoxShadow(
-            color: (isConnected ? AppColors.electricGreen : Colors.orange).withOpacity(0.1),
+            color: (isConnected ? AppColors.electricGreen : Colors.orange)
+                .withValues(alpha: 0.1),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1115,12 +1200,14 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: isConnected
-                    ? AppColors.electricGreen.withOpacity(0.15)
-                    : Colors.orange.withOpacity(0.15),
+                      ? AppColors.electricGreen.withValues(alpha: 0.15)
+                      : Colors.orange.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  isConnected ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+                  isConnected
+                      ? Icons.cloud_done_rounded
+                      : Icons.cloud_off_rounded,
                   color: isConnected ? AppColors.electricGreen : Colors.orange,
                   size: 24,
                 ),
@@ -1140,9 +1227,10 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                     ),
                     Text(
                       isConnected
-                        ? 'Real-time device updates active'
-                        : 'Device control works via Heroku',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                          ? 'Real-time device updates active'
+                          : 'Device control works via Heroku',
+                      style:
+                          TextStyle(fontSize: 12, color: Colors.grey.shade500),
                     ),
                   ],
                 ),
@@ -1151,19 +1239,22 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                 const SizedBox(
                   width: 24,
                   height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryBlue),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: AppColors.primaryBlue),
                 )
               else
                 PopupMenuButton<String>(
                   icon: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.primaryBlue.withOpacity(0.1),
+                      color: AppColors.primaryBlue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.more_vert_rounded, color: AppColors.primaryBlue, size: 20),
+                    child: const Icon(Icons.more_vert_rounded,
+                        color: AppColors.primaryBlue, size: 20),
                   ),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   onSelected: (action) async {
                     if (action == 'refresh') {
                       await _loadDevicesFromBackend();
@@ -1199,9 +1290,11 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                       value: 'clear_cache',
                       child: Row(
                         children: [
-                          Icon(Icons.delete_sweep_rounded, size: 20, color: Colors.orange),
+                          Icon(Icons.delete_sweep_rounded,
+                              size: 20, color: Colors.orange),
                           SizedBox(width: 12),
-                          Text('Clear Cache', style: TextStyle(color: Colors.orange)),
+                          Text('Clear Cache',
+                              style: TextStyle(color: Colors.orange)),
                         ],
                       ),
                     ),
@@ -1217,8 +1310,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: isDark
-                  ? Colors.white.withOpacity(0.05)
-                  : Colors.grey.shade50,
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : Colors.grey.shade50,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -1236,7 +1329,7 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                   Container(
                     width: 1,
                     height: 30,
-                    color: Colors.grey.withOpacity(0.3),
+                    color: Colors.grey.withValues(alpha: 0.3),
                   ),
                   // Active devices
                   _buildStatItem(
@@ -1250,7 +1343,7 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                   Container(
                     width: 1,
                     height: 30,
-                    color: Colors.grey.withOpacity(0.3),
+                    color: Colors.grey.withValues(alpha: 0.3),
                   ),
                   // Inactive devices
                   _buildStatItem(
@@ -1310,9 +1403,9 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.error.withOpacity(0.1),
+        color: AppColors.error.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.error.withOpacity(0.3)),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -1325,7 +1418,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close_rounded, color: AppColors.error, size: 20),
+            icon: const Icon(Icons.close_rounded,
+                color: AppColors.error, size: 20),
             onPressed: () => setState(() => _errorMessage = null),
           ),
         ],
@@ -1376,7 +1470,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
               backgroundColor: AppColors.primaryBlue,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ],
@@ -1384,7 +1479,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
     );
   }
 
-  Widget _buildModernApplianceCard(Map<String, dynamic> appliance, int index, bool isDark) {
+  Widget _buildModernApplianceCard(
+      Map<String, dynamic> appliance, int index, bool isDark) {
     final isOn = appliances[index]['isOn'] ?? false;
     final deviceName = appliance['name'] as String? ?? 'Unknown';
     final deviceTopic = appliance['topic'] as String? ?? 'No topic';
@@ -1407,15 +1503,15 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isOn
-              ? AppColors.electricGreen.withOpacity(0.3)
-              : Colors.grey.withOpacity(0.2),
+                ? AppColors.electricGreen.withValues(alpha: 0.3)
+                : Colors.grey.withValues(alpha: 0.2),
             width: isOn ? 1.5 : 1,
           ),
           boxShadow: [
             BoxShadow(
               color: isOn
-                ? AppColors.electricGreen.withOpacity(0.15)
-                : Colors.black.withOpacity(0.05),
+                  ? AppColors.electricGreen.withValues(alpha: 0.15)
+                  : Colors.black.withValues(alpha: 0.05),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -1443,20 +1539,24 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: isOn
-                            ? [AppColors.electricGreen, AppColors.electricGreen.withOpacity(0.7)]
-                            : [Colors.grey.shade400, Colors.grey.shade500],
+                              ? [
+                                  AppColors.electricGreen,
+                                  AppColors.electricGreen.withValues(alpha: 0.7)
+                                ]
+                              : [Colors.grey.shade400, Colors.grey.shade500],
                         ),
                         boxShadow: [
                           BoxShadow(
                             color: isOn
-                              ? AppColors.electricGreen.withOpacity(0.4)
-                              : Colors.black.withOpacity(0.2),
+                                ? AppColors.electricGreen.withValues(alpha: 0.4)
+                                : Colors.black.withValues(alpha: 0.2),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           ),
                         ],
                       ),
-                      child: const Icon(Icons.power_settings_new_rounded, color: Colors.white, size: 28),
+                      child: const Icon(Icons.power_settings_new_rounded,
+                          color: Colors.white, size: 28),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -1476,19 +1576,23 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(Icons.memory_rounded, size: 14, color: Colors.grey.shade500),
+                            Icon(Icons.memory_rounded,
+                                size: 14, color: Colors.grey.shade500),
                             const SizedBox(width: 4),
                             Text(
                               'GPIO $pin',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.grey.shade500),
                             ),
                             const SizedBox(width: 12),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
                                 color: isOn
-                                  ? AppColors.electricGreen.withOpacity(0.15)
-                                  : Colors.grey.withOpacity(0.15),
+                                    ? AppColors.electricGreen
+                                        .withValues(alpha: 0.15)
+                                    : Colors.grey.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
@@ -1496,7 +1600,9 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
-                                  color: isOn ? AppColors.electricGreen : Colors.grey,
+                                  color: isOn
+                                      ? AppColors.electricGreen
+                                      : Colors.grey,
                                 ),
                               ),
                             ),
@@ -1508,8 +1614,10 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                   // Actions
                   PopupMenuButton<String>(
                     tooltip: 'Device actions',
-                    icon: Icon(Icons.more_vert_rounded, color: Colors.grey.shade500),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    icon: Icon(Icons.more_vert_rounded,
+                        color: Colors.grey.shade500),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                     onSelected: (action) async {
                       if (action == 'edit') {
                         await _editAppliance(index);
@@ -1532,9 +1640,11 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
                         value: 'delete',
                         child: Row(
                           children: [
-                            Icon(Icons.delete_rounded, size: 20, color: AppColors.error),
+                            Icon(Icons.delete_rounded,
+                                size: 20, color: AppColors.error),
                             SizedBox(width: 12),
-                            Text('Delete', style: TextStyle(color: AppColors.error)),
+                            Text('Delete',
+                                style: TextStyle(color: AppColors.error)),
                           ],
                         ),
                       ),
@@ -1567,7 +1677,8 @@ class _DevicePageState extends State<DevicePage> with AutomaticKeepAliveClientMi
           content: Text('Failed to control $name'),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
 
