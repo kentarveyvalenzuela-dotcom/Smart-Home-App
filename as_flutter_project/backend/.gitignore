@@ -1,0 +1,10 @@
+# Local configuration and runtime artifacts
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite
+*.sqlite3
+*.log
+!requirements.txt
