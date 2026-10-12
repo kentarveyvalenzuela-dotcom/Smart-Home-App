@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'api_service.dart';
 
 /// Sensor reading model

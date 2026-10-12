@@ -125,7 +125,6 @@ class MqttService {
 
     try {
       final brokerCfg = _brokerOptions[_selectedBrokerIndex];
-      final bool isWebSocket = brokerCfg['isWebSocket'] as bool? ?? true;
       final String clientId =
           'flutter_home_${DateTime.now().millisecondsSinceEpoch}';
 
@@ -154,8 +153,7 @@ class MqttService {
         final connMsg = MqttConnectMessage()
             .withClientIdentifier(clientId)
             .startClean()
-            .withWillQos(MqttQos.atMostOnce)
-            .keepAliveFor(60);
+            .withWillQos(MqttQos.atMostOnce);
         browser.connectionMessage = connMsg;
 
         _client = browser;
@@ -185,8 +183,7 @@ class MqttService {
         final connMsg = MqttConnectMessage()
             .withClientIdentifier(clientId)
             .startClean()
-            .withWillQos(MqttQos.atMostOnce)
-            .keepAliveFor(60);
+            .withWillQos(MqttQos.atMostOnce);
 
         // Add authentication if provided
         if (username != null && password != null) {

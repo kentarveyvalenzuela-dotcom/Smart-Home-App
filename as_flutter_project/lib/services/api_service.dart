@@ -30,7 +30,6 @@ class ApiResponse<T> {
 abstract class ApiService {
   final String baseUrl = ConfigService().backendUrl;
   String? _accessToken;
-  String? _refreshToken;
   static const int maxRetries = 3;
   static const Duration retryDelay = Duration(milliseconds: 500);
   static const Duration requestTimeout = Duration(seconds: 30);
@@ -43,7 +42,6 @@ abstract class ApiService {
     try {
       final prefs = await SharedPreferences.getInstance();
       _accessToken = prefs.getString('access_token');
-      _refreshToken = prefs.getString('refresh_token');
       debugPrint(
           '🔐 ApiService initialized with token: ${_accessToken != null ? 'present' : 'missing'}');
     } catch (e) {
@@ -55,7 +53,6 @@ abstract class ApiService {
   Future<void> setTokens(String accessToken, {String? refreshToken}) async {
     try {
       _accessToken = accessToken;
-      if (refreshToken != null) _refreshToken = refreshToken;
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('access_token', accessToken);
@@ -72,7 +69,6 @@ abstract class ApiService {
   Future<void> clearTokens() async {
     try {
       _accessToken = null;
-      _refreshToken = null;
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('access_token');

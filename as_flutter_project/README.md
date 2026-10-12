@@ -55,8 +55,7 @@ flutter run                    # Connected device/emulator
 ```env
 DATABASE_URL=postgresql://username:password@localhost:5432/as_mqtt
 SECRET_KEY=your_secret_key
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_CLIENT_ID=your_web_oauth_client_id.apps.googleusercontent.com
 MQTT_BROKER=your_mqtt_broker
 MQTT_PORT=8883
 ```
@@ -74,10 +73,17 @@ Device control requests are published by the authenticated backend to `home/devi
 
 Opening the authenticated dashboard creates the energy device record once using `ENERGY_DEVICE_ID` (defaults to `admin`), matching the ID sent by both ESP32 sketches. For ESP32 builds, copy `scripts/secrets.h.example` to `scripts/secrets.h` and enter Wi-Fi, backend LAN URL, MQTT, energy-device ID, and device-ingest credentials there. `scripts/secrets.h` is ignored by Git. Rotate credentials that were previously present in tracked source files; changing these files does not invalidate credentials already exposed in Git history.
 
-### PostgreSQL and Google OAuth
-Set `DATABASE_URL` and `SECRET_KEY` in `backend/.env` or the project `.env`. Set `GOOGLE_CLIENT_ID` to the OAuth web client ID when Google sign-in is enabled. Sensor ingestion from ESP32 firmware also requires `DEVICE_INGEST_API_KEY` to match the value compiled into each device.
+### PostgreSQL, Google OAuth, SMTP, and 2FA
+Copy `backend/.env.example` to `backend/.env` and fill in the private values. The backend also reads the project `.env` as a fallback. Set `GOOGLE_CLIENT_ID` to the Web OAuth client ID in the backend environment, and pass that same public ID to Flutter with `--dart-define=GOOGLE_CLIENT_ID=your_web_client_id.apps.googleusercontent.com`. Register each Android/iOS app in the same Google Cloud OAuth project; Android credentials must include the app package name and signing SHA fingerprints. The server verifies Google ID tokens and requires a verified Google email.
+
+For mail delivery, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `EMAIL_FROM`; Gmail requires an App Password, not the account password. New email/password registrations require a verification code. Email codes are stored hashed, expire after 10 minutes, and allow at most five failed attempts. Password reset tokens are stored hashed in PostgreSQL and expire after 30 minutes. Apply `backend/migrations/006_auth_email_2fa.sql` to existing databases before using these routes. Email verification, 2FA, and reset requests return a configuration error if SMTP is missing or delivery fails. Existing accounts are marked verified by the migration to avoid locking them out.
+
+Sensor ingestion from ESP32 firmware also requires `DEVICE_INGEST_API_KEY` to match the value compiled into each device.
 
 The API stores accounts, preferences, devices, sensors, energy readings, alerts, logs, and notifications in PostgreSQL. ESP32 firmware sends energy history to `/ingest/energy` and sensor history batches to `/ingest/sensors`, both authenticated with `DEVICE_INGEST_API_KEY`. Sensor batches include voltage, total and per-channel current, power, and energy; PostgreSQL assigns a server timestamp when none is supplied. The app reads sensor history through the authenticated `/sensors/*` routes and polls the energy API for live dashboard values.
+
+### Push notifications (FCM)
+Apply `backend/migrations/005_push_notifications.sql` to the configured PostgreSQL database. Install the updated backend requirements and configure Firebase Admin credentials on the API host using `FIREBASE_SERVICE_ACCOUNT_JSON` (the service account JSON as a secret environment variable). Configure Firebase for the Flutter Android/iOS app with the matching Firebase project and generate the platform Firebase options; do not commit service-account credentials. The app registers its FCM token after authentication. The API continues storing in-app notifications when FCM credentials are absent; remote delivery then remains disabled. User notification preferences suppress push delivery when notifications are turned off.
 
 For local development, the Flutter app uses `http://10.0.2.2:8000` on Android (Android Emulator's address for the host computer) and `http://localhost:8000` on web/desktop. Start the API with `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`. A physical Android phone must use the computer's LAN IP instead (for example, `http://192.168.x.x:8000`); set that URL in the app's backend settings and allow port 8000 through the computer's firewall. The Android emulator and phone must be able to reach the computer over the network.
 

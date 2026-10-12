@@ -1,12 +1,7 @@
-// Web implementation: uses dart:html to perform a redirect
-import 'dart:html' as html;
+// Web implementation: uses the web platform API to perform a redirect.
+import 'package:web/web.dart' as web;
 
 String? redirectTo(String url) {
-  try {
-    html.window.location.href = url;
-    return url;
-  } catch (e) {
-    return null;
-  }
+  web.window.location.href = url;
+  return url;
 }
-

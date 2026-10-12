@@ -70,6 +70,13 @@ class EnergyMonitorService {
     await _pollLatestReading();
   }
 
+  void stopPolling() {
+    _sensorPollTimer?.cancel();
+    _sensorPollTimer = null;
+    _billCalculationTimer?.cancel();
+    _billCalculationTimer = null;
+  }
+
   Future<Map<String, String>?> _authHeaders() async {
     final headers = await AuthService().getAuthHeaders();
     if (!headers.containsKey('Authorization')) return null;
@@ -151,5 +158,9 @@ class EnergyMonitorService {
 
   void setRate(double ratePerKwh) { _ratePerKwh = ratePerKwh; _calculateBill(); }
   void resetBillingPeriod() { _periodStart = DateTime.now(); _totalEnergyKwh = 0; _calculateBill(); }
-  void dispose() { _sensorPollTimer?.cancel(); _billCalculationTimer?.cancel(); _readingStreamController.close(); _billStreamController.close(); }
+  void dispose() {
+    stopPolling();
+    _readingStreamController.close();
+    _billStreamController.close();
+  }
 }

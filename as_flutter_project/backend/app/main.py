@@ -7,8 +7,10 @@ import io
 import json
 import os
 import secrets
+import smtplib
 import threading
 import time
+from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -25,6 +27,14 @@ from pydantic import BaseModel, Field
 import paho.mqtt.client as mqtt
 from psycopg.types.json import Jsonb
 
+try:
+    import firebase_admin
+    from firebase_admin import credentials, messaging
+except ImportError:  # Push delivery is optional until Firebase Admin is configured.
+    firebase_admin = None
+    credentials = None
+    messaging = None
+
 
 # ============================================================
 # CONFIGURATION
@@ -32,19 +42,15 @@ from psycopg.types.json import Jsonb
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# .env is located in:
-# as_flutter_project/.env
+# Load backend/.env first, then fill unset values from the project .env.
 #
 # main.py is located in:
 # as_flutter_project/backend/app/main.py
 #
 # Therefore we go up two folders from APP_DIR.
-ENV_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(APP_DIR)),
-    ".env",
-)
-
-load_dotenv(ENV_PATH)
+PROJECT_DIR = os.path.dirname(os.path.dirname(APP_DIR))
+load_dotenv(os.path.join(PROJECT_DIR, "backend", ".env"))
+load_dotenv(os.path.join(PROJECT_DIR, ".env"), override=False)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -163,12 +169,39 @@ class LogRequest(BaseModel):
     severity: str = "info"
 
 
+class NotificationRequest(BaseModel):
+    type: str = Field(..., min_length=1, max_length=80)
+    title: str = Field(..., min_length=1, max_length=200)
+    message: str = Field(..., min_length=1, max_length=2000)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PushTokenRequest(BaseModel):
+    token: str = Field(..., min_length=20, max_length=4096)
+    platform: str = Field(default="unknown", max_length=32)
+
+
+class GoogleSignInRequest(BaseModel):
+    id_token: str = Field(..., min_length=20)
+
+
+class TwoFactorCodeRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+    code: str = Field(..., min_length=6, max_length=6)
+
+
+class EmailRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+
+
+class EmailVerificationRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+    code: str = Field(..., min_length=6, max_length=6)
+
+
 # ============================================================
 # TEMPORARY PASSWORD RESET TOKENS
 # ============================================================
-
-RESET_TOKENS: dict[str, dict[str, Any]] = {}
-
 
 # ============================================================
 # PASSWORD
@@ -189,6 +222,49 @@ def _create_db_connection():
         DATABASE_URL,
         row_factory=dict_row,
     )
+
+
+def _send_push_notification(user_id: int, title: str, message: str,
+                            data: dict[str, Any]) -> None:
+    """Best-effort FCM delivery; notification records remain available in-app."""
+    service_account = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+    if firebase_admin is None or not service_account:
+        return
+    try:
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(credentials.Certificate(json.loads(service_account)))
+        conn = _create_db_connection()
+        try:
+            enabled = conn.execute(
+                "SELECT notifications_enabled FROM user_preferences WHERE user_id = %s",
+                (user_id,),
+            ).fetchone()
+            if enabled is not None and not enabled["notifications_enabled"]:
+                return
+            tokens = conn.execute(
+                "SELECT token FROM push_device_tokens WHERE user_id = %s", (user_id,)
+            ).fetchall()
+        finally:
+            conn.close()
+        for row in tokens:
+            try:
+                messaging.send(messaging.Message(
+                    notification=messaging.Notification(title=title, body=message),
+                    data={str(k): str(v) for k, v in data.items()},
+                    token=row["token"],
+                ))
+            except Exception as exc:
+                # Remove tokens that Firebase has permanently rejected.
+                if "registration-token-not-registered" in str(exc).lower() or "invalid-registration-token" in str(exc).lower():
+                    cleanup = _create_db_connection()
+                    try:
+                        cleanup.execute("DELETE FROM push_device_tokens WHERE token = %s", (row["token"],))
+                        cleanup.commit()
+                    finally:
+                        cleanup.close()
+    except Exception:
+        # Push service configuration/outages must not fail notification persistence.
+        return
 
 
 # ============================================================
@@ -255,6 +331,131 @@ def _create_token(user_id: int, email: str) -> str:
         f"{encoded_payload}."
         f"{encoded_signature}"
     )
+
+
+def _smtp_configuration() -> tuple[str, int, str, str, str] | None:
+    host = os.getenv("SMTP_HOST", "").strip()
+    username = os.getenv("SMTP_USER", "").strip()
+    password = os.getenv("SMTP_PASS", "")
+    sender = os.getenv("EMAIL_FROM", "").strip() or username
+    if not host or not username or not password or not sender:
+        return None
+    try:
+        port = int(os.getenv("SMTP_PORT", "587"))
+    except ValueError:
+        return None
+    return host, port, username, password, sender
+
+
+def _send_email(recipient: str, subject: str, body: str) -> None:
+    config = _smtp_configuration()
+    if config is None:
+        raise RuntimeError("SMTP is not configured")
+    host, port, username, password, sender = config
+    email = EmailMessage()
+    email["From"] = sender
+    email["To"] = recipient
+    email["Subject"] = subject
+    email.set_content(body)
+    timeout = float(os.getenv("SMTP_TIMEOUT_SECONDS", "15"))
+    if os.getenv("SMTP_USE_SSL", "false").lower() in {"1", "true", "yes"}:
+        with smtplib.SMTP_SSL(host, port, timeout=timeout) as server:
+            server.login(username, password)
+            server.send_message(email)
+    else:
+        with smtplib.SMTP(host, port, timeout=timeout) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(username, password)
+            server.send_message(email)
+
+
+def _verify_google_identity_token(token: str) -> dict[str, Any]:
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured on the server")
+    try:
+        from google.auth.transport.requests import Request
+        from google.oauth2 import id_token
+        claims = id_token.verify_oauth2_token(token, Request(), audience=client_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Google ID token is invalid or expired") from exc
+    if not claims.get("sub") or not claims.get("email") or claims.get("email_verified") not in (True, "true"):
+        raise HTTPException(status_code=401, detail="Google account must provide a verified email")
+    return claims
+
+
+def _code_hash(user_id: int, purpose: str, code: str) -> str:
+    value = f"{user_id}:{purpose}:{code}".encode("utf-8")
+    return hmac.new(SECRET_KEY.encode("utf-8"), value, hashlib.sha256).hexdigest()
+
+
+def _issue_email_code(user_id: int, email: str, purpose: str) -> None:
+    if _smtp_configuration() is None:
+        raise HTTPException(status_code=503, detail="Email delivery is not configured on the server")
+    conn = _create_db_connection()
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    digest = _code_hash(user_id, purpose, code)
+    try:
+        recent = conn.execute(
+            "SELECT created_at FROM one_time_codes WHERE user_id = %s AND purpose = %s ORDER BY created_at DESC LIMIT 1",
+            (user_id, purpose),
+        ).fetchone()
+        if recent and (datetime.now(timezone.utc) - recent["created_at"]).total_seconds() < 60:
+            raise HTTPException(status_code=429, detail="Please wait before requesting another code")
+        conn.execute(
+            "DELETE FROM one_time_codes WHERE user_id = %s AND purpose = %s AND consumed_at IS NULL",
+            (user_id, purpose),
+        )
+        conn.execute(
+            "INSERT INTO one_time_codes (user_id, purpose, code_hash, expires_at) VALUES (%s, %s, %s, %s)",
+            (user_id, purpose, digest, datetime.now(timezone.utc) + timedelta(minutes=10)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    purpose_text = {
+        "google_signin_2fa": "sign-in",
+        "enable_2fa": "two-factor setup",
+        "email_verification": "email verification",
+    }.get(purpose, "verification")
+    try:
+        _send_email(email, "Your Smart Home verification code",
+                    f"Your {purpose_text} code is {code}. It expires in 10 minutes. If you did not request it, ignore this email.")
+    except Exception as exc:
+        cleanup = _create_db_connection()
+        try:
+            cleanup.execute("DELETE FROM one_time_codes WHERE user_id = %s AND purpose = %s AND code_hash = %s",
+                            (user_id, purpose, digest))
+            cleanup.commit()
+        finally:
+            cleanup.close()
+        raise HTTPException(status_code=503, detail="Could not send the verification email; check SMTP settings") from exc
+
+
+def _consume_email_code(user_id: int, purpose: str, code: str) -> bool:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """SELECT id, code_hash, failed_attempts FROM one_time_codes
+               WHERE user_id = %s AND purpose = %s AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+               ORDER BY created_at DESC LIMIT 1""",
+            (user_id, purpose),
+        ).fetchone()
+        if row is None or row["failed_attempts"] >= 5:
+            return False
+        if not hmac.compare_digest(row["code_hash"], _code_hash(user_id, purpose, code)):
+            conn.execute("UPDATE one_time_codes SET failed_attempts = failed_attempts + 1 WHERE id = %s", (row["id"],))
+            conn.commit()
+            return False
+        conn.execute("UPDATE one_time_codes SET consumed_at = CURRENT_TIMESTAMP WHERE id = %s", (row["id"],))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
 
 
 # ============================================================
@@ -332,7 +533,10 @@ def _get_user_by_email(
                 id,
                 email,
                 password_hash,
-                name
+                name,
+                provider,
+                two_factor_enabled,
+                email_verified
             FROM users
             WHERE email = %s
             """,
@@ -430,11 +634,10 @@ async def health() -> HealthResponse:
 
 @app.post(
     "/auth/register",
-    response_model=RegisterResponse,
 )
 async def register(
     payload: RegisterRequest,
-) -> RegisterResponse:
+) -> dict[str, Any]:
 
     email = payload.email.lower().strip()
     name = payload.name.strip()
@@ -448,6 +651,11 @@ async def register(
     existing = _get_user_by_email(email)
 
     if existing is not None:
+        if not existing["email_verified"] and existing["password_hash"] == _hash_password(payload.password):
+            await asyncio.to_thread(_issue_email_code, existing["id"], email, "email_verification")
+            return {"success": True, "requires_email_verification": True,
+                    "message": "A new email verification code was sent.",
+                    "user": {"id": existing["id"], "email": email, "name": existing["name"]}}
         raise HTTPException(
             status_code=409,
             detail="User already exists",
@@ -465,9 +673,10 @@ async def register(
             INSERT INTO users (
                 email,
                 password_hash,
-                name
+                name,
+                email_verified
             )
-            VALUES (%s, %s, %s)
+            VALUES (%s, %s, %s, FALSE)
             RETURNING id
             """,
             (
@@ -484,18 +693,19 @@ async def register(
     finally:
         conn.close()
 
-    return RegisterResponse(
-        success=True,
-        message=(
-            "Account created successfully! "
-            "Please login with your credentials."
-        ),
-        user=UserOut(
-            id=user_id,
-            email=email,
-            name=name,
-        ),
-    )
+    try:
+        await asyncio.to_thread(_issue_email_code, user_id, email, "email_verification")
+    except Exception:
+        cleanup = _create_db_connection()
+        try:
+            cleanup.execute("DELETE FROM users WHERE id = %s AND email_verified = FALSE", (user_id,))
+            cleanup.commit()
+        finally:
+            cleanup.close()
+        raise
+    return {"success": True, "requires_email_verification": True,
+            "message": "A verification code was sent to your email.",
+            "user": {"id": user_id, "email": email, "name": name}}
 
 
 # ============================================================
@@ -504,11 +714,10 @@ async def register(
 
 @app.post(
     "/auth/login",
-    response_model=AuthTokenResponse,
 )
 async def login(
     payload: LoginRequest,
-) -> AuthTokenResponse:
+) -> dict[str, Any]:
 
     email = payload.email.lower().strip()
 
@@ -528,6 +737,15 @@ async def login(
             detail="Invalid email or password",
         )
 
+    if not user_row["email_verified"]:
+        await asyncio.to_thread(_issue_email_code, user_row["id"], user_row["email"], "email_verification")
+        return {"requires_email_verification": True, "email": user_row["email"]}
+
+    if user_row["two_factor_enabled"]:
+        await asyncio.to_thread(_issue_email_code, user_row["id"], user_row["email"], "google_signin_2fa")
+        return {"requires_2fa": True, "email": user_row["email"],
+                "user": {"id": user_row["id"], "email": user_row["email"], "name": user_row["name"]}}
+
     access_token = _create_token(
         user_row["id"],
         user_row["email"],
@@ -542,6 +760,145 @@ async def login(
             name=user_row["name"],
         ),
     )
+
+
+@app.post("/auth/google-signin")
+async def google_signin(payload: GoogleSignInRequest) -> dict[str, Any]:
+    claims = await asyncio.to_thread(_verify_google_identity_token, payload.id_token)
+    email = str(claims["email"]).strip().lower()
+    google_subject = str(claims["sub"])
+    name = str(claims.get("name") or email.split("@", 1)[0]).strip()
+    conn = _create_db_connection()
+    try:
+        user = conn.execute(
+            "SELECT id, email, name, provider, two_factor_enabled, google_subject FROM users WHERE google_subject = %s",
+            (google_subject,),
+        ).fetchone()
+        if user is None:
+            user = conn.execute(
+                "SELECT id, email, name, provider, two_factor_enabled, google_subject FROM users WHERE email = %s",
+                (email,),
+            ).fetchone()
+            if user is not None and user["google_subject"] not in (None, google_subject):
+                raise HTTPException(status_code=409, detail="This email is linked to a different Google account")
+            if user is not None and user["google_subject"] is None:
+                user = conn.execute(
+                    """UPDATE users SET google_subject = %s, provider = 'google', email_verified = TRUE
+                       WHERE id = %s RETURNING id, email, name, provider, two_factor_enabled, google_subject""",
+                    (google_subject, user["id"]),
+                ).fetchone()
+                conn.commit()
+        if user is None:
+            user = conn.execute(
+                """INSERT INTO users (email, password_hash, name, provider, google_subject)
+                   VALUES (%s, %s, %s, 'google', %s) RETURNING id, email, name, provider, two_factor_enabled, google_subject""",
+                (email, secrets.token_hex(32), name, google_subject),
+            ).fetchone()
+            conn.commit()
+        if user["two_factor_enabled"]:
+            await asyncio.to_thread(_issue_email_code, user["id"], user["email"], "google_signin_2fa")
+            return {"requires_2fa": True, "email": user["email"]}
+        token = _create_token(user["id"], user["email"])
+        return {"requires_2fa": False, "access_token": token,
+                "user": {"id": user["id"], "email": user["email"], "name": user["name"], "provider": user["provider"]}}
+    finally:
+        conn.close()
+
+
+@app.post("/auth/request-2fa")
+async def request_google_2fa(payload: EmailRequest) -> dict[str, Any]:
+    user = _get_user_by_email(payload.email.strip().lower())
+    if user is None:
+        # Avoid revealing whether an account exists.
+        return {"success": True, "message": "If two-factor sign-in is enabled, a code will be sent."}
+    conn = _create_db_connection()
+    try:
+        state = conn.execute("SELECT two_factor_enabled FROM users WHERE id = %s", (user["id"],)).fetchone()
+    finally:
+        conn.close()
+    if state and state["two_factor_enabled"]:
+        await asyncio.to_thread(_issue_email_code, user["id"], user["email"], "google_signin_2fa")
+    return {"success": True, "message": "If two-factor sign-in is enabled, a code will be sent."}
+
+
+@app.post("/auth/verify-2fa")
+async def verify_google_2fa(payload: TwoFactorCodeRequest) -> dict[str, Any]:
+    email = payload.email.strip().lower()
+    user = _get_user_by_email(email)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired verification code")
+    conn = _create_db_connection()
+    try:
+        state = conn.execute("SELECT id, email, name, two_factor_enabled FROM users WHERE id = %s", (user["id"],)).fetchone()
+    finally:
+        conn.close()
+    if not state or not state["two_factor_enabled"] or not await asyncio.to_thread(
+        _consume_email_code, user["id"], "google_signin_2fa", payload.code
+    ):
+        raise HTTPException(status_code=401, detail="Invalid or expired verification code")
+    return {"success": True, "access_token": _create_token(state["id"], state["email"]),
+            "user": {"id": state["id"], "email": state["email"], "name": state["name"]}}
+
+
+@app.post("/auth/verify-email")
+async def verify_email_address(payload: EmailVerificationRequest) -> dict[str, Any]:
+    user = _get_user_by_email(payload.email.strip().lower())
+    if user is None or user["email_verified"] or not await asyncio.to_thread(
+        _consume_email_code, user["id"], "email_verification", payload.code
+    ):
+        raise HTTPException(status_code=400, detail="Invalid or expired email verification code")
+    conn = _create_db_connection()
+    try:
+        conn.execute("UPDATE users SET email_verified = TRUE WHERE id = %s", (user["id"],))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"success": True, "message": "Email verified. You can now sign in."}
+
+
+@app.get("/settings/2fa/status")
+async def two_factor_status(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute("SELECT two_factor_enabled FROM users WHERE id = %s", (current_user.id,)).fetchone()
+        return {"enabled": bool(row and row["two_factor_enabled"]), "two_factor_enabled": bool(row and row["two_factor_enabled"])}
+    finally:
+        conn.close()
+
+
+@app.post("/settings/2fa/enable")
+async def begin_enable_two_factor(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    await asyncio.to_thread(_issue_email_code, current_user.id, current_user.email, "enable_2fa")
+    return {"success": True, "pending_verification": True, "message": "Verification code sent to your email"}
+
+
+@app.post("/settings/2fa/verify")
+async def verify_enable_two_factor(payload: dict[str, Any],
+                                   current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    code = str(payload.get("code", "")).strip()
+    if len(code) != 6 or not code.isdigit() or not await asyncio.to_thread(
+        _consume_email_code, current_user.id, "enable_2fa", code
+    ):
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+    conn = _create_db_connection()
+    try:
+        conn.execute("UPDATE users SET two_factor_enabled = TRUE WHERE id = %s", (current_user.id,))
+        conn.commit()
+        return {"success": True, "enabled": True}
+    finally:
+        conn.close()
+
+
+@app.post("/settings/2fa/disable")
+async def disable_two_factor(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        conn.execute("UPDATE users SET two_factor_enabled = FALSE WHERE id = %s", (current_user.id,))
+        conn.execute("DELETE FROM one_time_codes WHERE user_id = %s AND purpose IN ('google_signin_2fa', 'enable_2fa')", (current_user.id,))
+        conn.commit()
+        return {"success": True, "enabled": False}
+    finally:
+        conn.close()
 
 
 # ============================================================
@@ -570,12 +927,16 @@ async def get_auth_user(
         get_current_user
     ),
 ) -> dict[str, Any]:
-
+    conn = _create_db_connection()
+    try:
+        row = conn.execute("SELECT provider FROM users WHERE id = %s", (current_user.id,)).fetchone()
+    finally:
+        conn.close()
     return {
         "id": current_user.id,
         "email": current_user.email,
         "name": current_user.name,
-        "provider": "email",
+        "provider": row["provider"] if row else "email",
     }
 
 
@@ -598,6 +959,9 @@ async def request_password_reset(
             detail="Email is required",
         )
 
+    if _smtp_configuration() is None:
+        raise HTTPException(status_code=503, detail="Email delivery is not configured on the server")
+
     user = _get_user_by_email(email)
 
     if user is None:
@@ -605,28 +969,41 @@ async def request_password_reset(
             "success": True,
             "message": (
                 "If the email exists, "
-                "a reset link has been sent."
+                "a reset code has been sent."
             ),
         }
 
-    token = hashlib.sha256(
-        f"{email}:{time.time()}".encode(
-            "utf-8"
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    conn = _create_db_connection()
+    try:
+        conn.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (user["id"],))
+        conn.execute(
+            "INSERT INTO password_reset_tokens (token_hash, user_id, expires_at) VALUES (%s, %s, %s)",
+            (token_hash, user["id"], datetime.now(timezone.utc) + timedelta(minutes=30)),
         )
-    ).hexdigest()
-
-    RESET_TOKENS[token] = {
-        "email": email,
-        "expires_at": time.time() + 900,
-    }
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        await asyncio.to_thread(
+            _send_email, email, "Reset your Smart Home password",
+            f"Your password reset code is:\n\n{token}\n\nPaste it into the Smart Home app within 30 minutes. If you did not request this, ignore this email.",
+        )
+    except Exception as exc:
+        cleanup = _create_db_connection()
+        try:
+            cleanup.execute("DELETE FROM password_reset_tokens WHERE token_hash = %s", (token_hash,))
+            cleanup.commit()
+        finally:
+            cleanup.close()
+        raise HTTPException(status_code=503, detail="Could not send the reset email; check SMTP settings") from exc
 
     return {
         "success": True,
         "message": (
-            "Password reset link sent "
-            "to your email."
+            "If the email exists, a reset code has been sent."
         ),
-        "token": token,
     }
 
 
@@ -649,24 +1026,18 @@ async def verify_password_reset(
             detail="Reset token is required",
         )
 
-    record = RESET_TOKENS.get(token)
-
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    conn = _create_db_connection()
+    try:
+        record = conn.execute(
+            """SELECT u.email FROM password_reset_tokens t JOIN users u ON u.id = t.user_id
+               WHERE t.token_hash = %s AND t.expires_at > CURRENT_TIMESTAMP""",
+            (token_hash,),
+        ).fetchone()
+    finally:
+        conn.close()
     if record is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid or expired reset token",
-        )
-
-    if record["expires_at"] < time.time():
-        RESET_TOKENS.pop(
-            token,
-            None,
-        )
-
-        raise HTTPException(
-            status_code=400,
-            detail="Reset token has expired",
-        )
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
     return {
         "success": True,
@@ -687,10 +1058,6 @@ async def confirm_password_reset(
         payload.token or ""
     ).strip()
 
-    email = (
-        payload.email or ""
-    ).strip().lower()
-
     new_password = (
         payload.new_password or ""
     ).strip()
@@ -707,64 +1074,33 @@ async def confirm_password_reset(
             ),
         )
 
-    if token:
-
-        record = RESET_TOKENS.get(token)
-
-        if record is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired reset token",
-            )
-
-        if record["expires_at"] < time.time():
-
-            RESET_TOKENS.pop(
-                token,
-                None,
-            )
-
-            raise HTTPException(
-                status_code=400,
-                detail="Reset token has expired",
-            )
-
-        email = record["email"]
-
-        RESET_TOKENS.pop(
-            token,
-            None,
-        )
-
-    elif not email:
-
+    if not token:
         raise HTTPException(
             status_code=400,
-            detail="Email or token is required",
+            detail="Reset token is required",
         )
-
-    user = _get_user_by_email(email)
-
-    if user is None:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found",
-        )
-
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     conn = _create_db_connection()
 
     try:
+        record = conn.execute(
+            "SELECT user_id FROM password_reset_tokens WHERE token_hash = %s AND expires_at > CURRENT_TIMESTAMP",
+            (token_hash,),
+        ).fetchone()
+        if record is None:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
         conn.execute(
             """
             UPDATE users
             SET password_hash = %s
-            WHERE email = %s
+            WHERE id = %s
             """,
             (
                 _hash_password(new_password),
-                email,
+                record["user_id"],
             ),
         )
+        conn.execute("DELETE FROM password_reset_tokens WHERE token_hash = %s", (token_hash,))
 
         conn.commit()
 
@@ -787,12 +1123,17 @@ async def get_profile(
         get_current_user
     ),
 ) -> dict[str, Any]:
-
+    conn = _create_db_connection()
+    try:
+        row = conn.execute("SELECT provider, two_factor_enabled FROM users WHERE id = %s", (current_user.id,)).fetchone()
+    finally:
+        conn.close()
     return {
         "id": current_user.id,
         "name": current_user.name,
         "email": current_user.email,
-        "provider": "email",
+        "provider": row["provider"] if row else "email",
+        "two_factor_enabled": bool(row and row["two_factor_enabled"]),
     }
 
 
@@ -1719,6 +2060,127 @@ async def control_device_legacy(payload: dict[str, Any],
         _execute_device_command, current_user.id, selector,
         str(payload.get("action", payload.get("command", ""))),
     )
+
+
+def _notification_json(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]), "user_id": str(row["user_id"]),
+        "type": row["type"], "title": row["title"],
+        "message": row["message"], "metadata": row["metadata"] or {},
+        "is_read": bool(row["is_read"]), "isRead": bool(row["is_read"]),
+        "created_at": row["created_at"], "timestamp": row["created_at"],
+    }
+
+
+@app.get("/notifications")
+async def list_notifications(limit: int = 100,
+                             current_user: UserOut = Depends(get_current_user)) -> list[dict[str, Any]]:
+    conn = _create_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM notifications WHERE user_id = %s ORDER BY created_at DESC, id DESC LIMIT %s",
+            (current_user.id, max(1, min(limit, 100))),
+        ).fetchall()
+        return [_notification_json(row) for row in rows]
+    finally:
+        conn.close()
+
+
+@app.post("/notifications")
+async def create_notification(payload: NotificationRequest,
+                              current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """INSERT INTO notifications (user_id, type, title, message, metadata)
+               VALUES (%s, %s, %s, %s, %s) RETURNING *""",
+            (current_user.id, payload.type, payload.title, payload.message, Jsonb(payload.metadata)),
+        ).fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+    await asyncio.to_thread(_send_push_notification, current_user.id, payload.title,
+                            payload.message, {"notification_id": str(row["id"]), "type": payload.type})
+    return _notification_json(row)
+
+
+@app.patch("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: int,
+                                 current_user: UserOut = Depends(get_current_user)) -> dict[str, bool]:
+    conn = _create_db_connection()
+    try:
+        conn.execute("UPDATE notifications SET is_read = TRUE WHERE id = %s AND user_id = %s",
+                     (notification_id, current_user.id))
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+@app.post("/notifications/read-all")
+async def mark_all_notifications_read(current_user: UserOut = Depends(get_current_user)) -> dict[str, bool]:
+    conn = _create_db_connection()
+    try:
+        conn.execute("UPDATE notifications SET is_read = TRUE WHERE user_id = %s", (current_user.id,))
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+@app.delete("/notifications/{notification_id}")
+async def delete_notification(notification_id: int,
+                              current_user: UserOut = Depends(get_current_user)) -> dict[str, bool]:
+    conn = _create_db_connection()
+    try:
+        conn.execute("DELETE FROM notifications WHERE id = %s AND user_id = %s",
+                     (notification_id, current_user.id))
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+@app.delete("/notifications")
+async def delete_all_notifications(current_user: UserOut = Depends(get_current_user)) -> dict[str, bool]:
+    conn = _create_db_connection()
+    try:
+        conn.execute("DELETE FROM notifications WHERE user_id = %s", (current_user.id,))
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+@app.post("/notifications/device-token")
+async def register_push_token(payload: PushTokenRequest,
+                              current_user: UserOut = Depends(get_current_user)) -> dict[str, bool]:
+    conn = _create_db_connection()
+    try:
+        conn.execute(
+            """INSERT INTO push_device_tokens (user_id, token, platform, updated_at)
+               VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+               ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id,
+                   platform = EXCLUDED.platform, updated_at = CURRENT_TIMESTAMP""",
+            (current_user.id, payload.token, payload.platform),
+        )
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+@app.delete("/notifications/device-token")
+async def unregister_push_token(payload: PushTokenRequest,
+                                current_user: UserOut = Depends(get_current_user)) -> dict[str, bool]:
+    conn = _create_db_connection()
+    try:
+        conn.execute("DELETE FROM push_device_tokens WHERE user_id = %s AND token = %s",
+                     (current_user.id, payload.token))
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
 
 
 def _log_json(row: dict[str, Any]) -> dict[str, Any]:

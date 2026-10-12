@@ -70,6 +70,7 @@ class _NotificationsPageState extends State<NotificationsPage>
     _tabController.dispose();
     _animController.dispose();
     _notificationSub?.cancel();
+    _notificationService.stopPolling();
     super.dispose();
   }
 
@@ -132,24 +133,26 @@ class _NotificationsPageState extends State<NotificationsPage>
   Future<void> _clearAllAlerts() async {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Clear All Alerts?'),
         content: const Text('Mark all alerts as resolved?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               final result = await _authService.clearAllAlerts();
 
-              if (result != null && result['success'] == true && mounted) {
+              if (!mounted) return;
+              if (result != null && result['success'] == true) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Cleared ${result['deleted'] ?? result['cleared_count'] ?? 0} alerts'),
+                    content: Text(
+                        'Cleared ${result['deleted'] ?? result['cleared_count'] ?? 0} alerts'),
                     backgroundColor: AppColors.electricGreen,
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(
@@ -174,19 +177,20 @@ class _NotificationsPageState extends State<NotificationsPage>
   Future<void> _clearAllNotifications() async {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Clear All Notifications?'),
         content: const Text('Delete all activity notifications?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               await _notificationService.clearAll();
+              if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: const Text('All notifications cleared'),
@@ -916,8 +920,10 @@ class _NotificationsPageState extends State<NotificationsPage>
     final metadata = alert['metadata'] is Map
         ? Map<String, dynamic>.from(alert['metadata'] as Map)
         : <String, dynamic>{};
-    String alertType = (alert['alert_type'] ?? metadata['threshold_key'] ??
-            alert['title'] ?? 'unknown')
+    String alertType = (alert['alert_type'] ??
+            metadata['threshold_key'] ??
+            alert['title'] ??
+            'unknown')
         .toString()
         .toLowerCase();
     String message = alert['message'] ?? 'Unknown alert';
@@ -1040,7 +1046,8 @@ class _NotificationsPageState extends State<NotificationsPage>
                           Row(
                             children: [
                               Text(
-                                '${readingValue} ${metadata['unit'] ?? ''}'.trim(),
+                                '$readingValue ${metadata['unit'] ?? ''}'
+                                    .trim(),
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: isResolved ? Colors.grey : iconColor,

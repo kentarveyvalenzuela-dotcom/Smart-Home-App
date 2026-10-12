@@ -9,8 +9,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 const _googleClientId = String.fromEnvironment(
   'GOOGLE_CLIENT_ID',
-  defaultValue:
-      '541021035552-46c0utctt41vjagp4a8u7jdasu2csmk3.apps.googleusercontent.com',
+  defaultValue: '',
 );
 
 class AuthService {
@@ -100,10 +99,21 @@ class AuthService {
       }
 
       if (response.statusCode == 200) {
+        if (data['requires_email_verification'] == true) {
+          return {
+            'success': true,
+            'requiresEmailVerification': true,
+            'email': data['user']?['email'] ?? email,
+            'message':
+                data['message'] ?? 'Check your email for a verification code.',
+          };
+        }
         // Don't auto-login on registration, just return success message
         return {
           'success': true,
-          'message':
+          'requiresEmailVerification':
+              data['requires_email_verification'] == true,
+          'message': data['message'] ??
               'Account created successfully! Please login with your credentials.',
           'user': data['user']
         };
@@ -154,6 +164,13 @@ class AuthService {
       }
 
       if (response.statusCode == 200) {
+        if (data['requires_email_verification'] == true) {
+          return {
+            'success': true,
+            'requiresEmailVerification': true,
+            'email': data['email'] ?? email,
+          };
+        }
         if (data['requires_2fa'] == true) {
           return {
             'success': true,
@@ -179,6 +196,29 @@ class AuthService {
       }
     } catch (e) {
       debugPrint('Sign in error: $e');
+      return {'success': false, 'error': _normalizeNetworkError(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>?> verifyEmailAddress(
+      String email, String code) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/auth/verify-email'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'email': email, 'code': code}),
+          )
+          .timeout(const Duration(seconds: 10));
+      final data = json.decode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, ...Map<String, dynamic>.from(data)};
+      }
+      return {
+        'success': false,
+        'error': data['detail'] ?? 'Email verification failed'
+      };
+    } catch (e) {
       return {'success': false, 'error': _normalizeNetworkError(e)};
     }
   }
@@ -312,40 +352,52 @@ class AuthService {
   // Exchange a Google OAuth identity token for an application session.
   Future<Map<String, dynamic>?> signInWithGoogle() async {
     try {
+      if (_googleClientId.isEmpty) {
+        return {
+          'success': false,
+          'error':
+              'Google OAuth client ID is missing. Build with --dart-define=GOOGLE_CLIENT_ID=<Web client ID>.',
+        };
+      }
       final account = await GoogleSignIn(
         clientId: kIsWeb ? _googleClientId : null,
         serverClientId: _googleClientId,
         scopes: ['email', 'profile'],
       ).signIn();
-      if (account == null)
+      if (account == null) {
         return {'success': false, 'error': 'Google sign-in was cancelled'};
+      }
       final idToken = (await account.authentication).idToken;
-      if (idToken == null)
+      if (idToken == null) {
         return {'success': false, 'error': 'Google did not return an ID token'};
+      }
       final response = await http
           .post(Uri.parse('$_baseUrl/auth/google-signin'),
               headers: {'Content-Type': 'application/json'},
               body: json.encode({'id_token': idToken}))
           .timeout(const Duration(seconds: 15));
       final data = json.decode(response.body);
-      if (response.statusCode != 200)
+      if (response.statusCode != 200) {
         return {
           'success': false,
           'error': _extractErrorMessage(data, 'Google sign-in failed')
         };
-      if (data['requires_2fa'] == true)
+      }
+      if (data['requires_2fa'] == true) {
         return {
           'success': true,
           'requires2FA': true,
           'email': data['user']?['email'] ?? account.email
         };
+      }
       final user = Map<String, dynamic>.from(data['user'] as Map);
       final token = data['access_token']?.toString() ?? '';
-      if (token.isEmpty)
+      if (token.isEmpty) {
         return {
           'success': false,
           'error': 'Backend did not issue an application token'
         };
+      }
       await _storeToken(token);
       _currentUserId = user['id']?.toString();
       _currentUserEmail = user['email']?.toString() ?? account.email;
@@ -615,23 +667,23 @@ class AuthService {
 
   // 🎯 NEW: Send device control command via backend API
   Future<Map<String, dynamic>?> sendDeviceControl({
-    required String device_id,
-    required int pin_number,
+    required String deviceId,
+    required int pinNumber,
     required String action,
   }) async {
     try {
       final headers = await getAuthHeaders();
 
       debugPrint(
-          '📤 Sending control to backend: device=$device_id, pin=$pin_number, action=$action');
+          '📤 Sending control to backend: device=$deviceId, pin=$pinNumber, action=$action');
 
       final response = await http
           .post(
             Uri.parse('$_baseUrl/devices/control'),
             headers: headers,
             body: json.encode({
-              'device_id': device_id,
-              'pin_number': pin_number,
+              'device_id': deviceId,
+              'pin_number': pinNumber,
               'action': action,
             }),
           )
@@ -1182,9 +1234,13 @@ class AuthService {
     try {
       final token = await getAccessToken();
       if (token == null) return null;
-      final response = await http.get(Uri.parse('$_baseUrl/settings/sensor-thresholds'),
-          headers: {'Authorization': 'Bearer $token'}).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) return Map<String, dynamic>.from(json.decode(response.body));
+      final response = await http
+          .get(Uri.parse('$_baseUrl/settings/sensor-thresholds'), headers: {
+        'Authorization': 'Bearer $token'
+      }).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        return Map<String, dynamic>.from(json.decode(response.body));
+      }
       return null;
     } catch (e) {
       debugPrint('Get sensor thresholds error: $e');
@@ -1200,11 +1256,21 @@ class AuthService {
     try {
       final token = await getAccessToken();
       if (token == null) return null;
-      final response = await http.put(Uri.parse('$_baseUrl/settings/sensor-thresholds'),
-          headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-          body: json.encode({'voltage_min': voltageMin, 'voltage_max': voltageMax,
-            'amperage_max': amperageMax})).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) return Map<String, dynamic>.from(json.decode(response.body));
+      final response = await http
+          .put(Uri.parse('$_baseUrl/settings/sensor-thresholds'),
+              headers: {
+                'Authorization': 'Bearer $token',
+                'Content-Type': 'application/json'
+              },
+              body: json.encode({
+                'voltage_min': voltageMin,
+                'voltage_max': voltageMax,
+                'amperage_max': amperageMax
+              }))
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        return Map<String, dynamic>.from(json.decode(response.body));
+      }
       return null;
     } catch (e) {
       debugPrint('Update sensor thresholds error: $e');

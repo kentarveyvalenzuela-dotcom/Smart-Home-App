@@ -55,7 +55,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       if (response != null && response['success']) {
         setState(() => emailSent = true);
         _showSnackBar(
-          'Password reset link sent to ${_emailController.text}\nCheck your email for instructions.',
+          'Password reset code sent to ${_emailController.text}\nCheck your email for the code.',
           isError: false,
         );
 

@@ -75,6 +75,35 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
     );
   }
 
+  Future<bool> _verifyEmailCode(String email) async {
+    final codeController = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Verify your email'),
+        content: TextField(
+          controller: codeController,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          decoration: const InputDecoration(labelText: '6-digit code sent by email'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, codeController.text.trim()), child: const Text('Verify')),
+        ],
+      ),
+    );
+    codeController.dispose();
+    if (code == null) return false;
+    final result = await _authService.verifyEmailAddress(email, code);
+    if (result?['success'] != true) {
+      _showSnackBar(result?['error'] ?? 'Email verification failed', isError: true);
+      return false;
+    }
+    return true;
+  }
+
   Future<void> _handleEmailAuth() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -97,10 +126,28 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
       }
 
       if (result != null && result['success']) {
+        if (result['requiresEmailVerification'] == true) {
+          final verified = await _verifyEmailCode(
+            result['email']?.toString() ?? _emailController.text.trim(),
+          );
+          if (verified && mounted) {
+            _showSnackBar(isLogin
+                ? 'Email verified. Sign in again to continue.'
+                : 'Email verified. Your account is ready; please sign in.');
+            setState(() {
+              isLogin = true;
+              _passwordController.clear();
+              _confirmPassController.clear();
+            });
+          }
+          return;
+        }
         if (isLogin) {
+          if (!mounted) return;
           if (result['requires2FA'] == true) {
             Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => GoogleSignIn2FAPage(email: result?['email']?.toString()),
+              builder: (_) =>
+                  GoogleSignIn2FAPage(email: result!['email']?.toString()),
             ));
             return;
           }
@@ -493,8 +540,9 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                               // Check if 2FA is required
                                               if (result['requires2FA'] ==
                                                   true) {
+                                                if (!context.mounted) return;
                                                 Navigator.of(context).push(MaterialPageRoute(
-                                                  builder: (_) => GoogleSignIn2FAPage(email: result?['email']?.toString()),
+                                                  builder: (_) => GoogleSignIn2FAPage(email: result['email']?.toString()),
                                                 ));
                                               } else {
                                                 _showSnackBar(
@@ -506,7 +554,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                                 NotificationService()
                                                     .addGoogleSignInNotification(
                                                         userEmail);
-                                                if (mounted) {
+                                                if (context.mounted) {
                                                   Navigator.pushReplacement(
                                                       context,
                                                       MaterialPageRoute(
@@ -515,6 +563,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                                 }
                                               }
                                             } else {
+                                              if (!context.mounted) return;
                                               _showSnackBar(
                                                   result?['error'] ??
                                                       'Google sign-in failed',
@@ -525,6 +574,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                             final mobileRes =
                                                 await GoogleSignIn2FAService()
                                                     .signInWithGoogle();
+                                            if (!context.mounted) return;
                                             if (mobileRes['success'] == true) {
                                               if (mobileRes['requires2FA'] ==
                                                   true) {
@@ -543,7 +593,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                                 NotificationService()
                                                     .addGoogleSignInNotification(
                                                         userEmail);
-                                                if (mounted) {
+                                                if (context.mounted) {
                                                   Navigator.pushReplacement(
                                                       context,
                                                       MaterialPageRoute(

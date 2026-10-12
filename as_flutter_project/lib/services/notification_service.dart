@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -73,6 +74,8 @@ class NotificationService {
   final List<ActivityNotification> _notifications = [];
   final _notificationStreamController = StreamController<List<ActivityNotification>>.broadcast();
   Timer? _pollTimer;
+  StreamSubscription<String>? _pushTokenSubscription;
+  String? _registeredPushToken;
   bool _initialized = false;
 
   Stream<List<ActivityNotification>> get notificationStream => _notificationStreamController.stream;
@@ -86,17 +89,40 @@ class NotificationService {
   }
 
   Future<void> initialize() async {
-    if (_initialized) return;
+    if (_initialized) {
+      _startPolling();
+      return;
+    }
     await _loadFromLocalStorage();
     await _syncFromBackend();
-    _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) => _syncFromBackend());
+    _startPolling();
+    if (!kIsWeb) {
+      try {
+        _pushTokenSubscription = FirebaseMessaging.instance.onTokenRefresh.listen((token) {
+          _registerPushToken(token);
+        });
+      } catch (e) {
+        debugPrint('Firebase Messaging is not initialized: $e');
+      }
+    }
     _initialized = true;
+  }
+
+  void _startPolling() {
+    _pollTimer ??=
+        Timer.periodic(const Duration(seconds: 20), (_) => _syncFromBackend());
+  }
+
+  void stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
   }
 
   Future<void> _syncFromBackend() async {
     try {
       final headers = await _headers();
       if (!headers.containsKey('Authorization')) return;
+      await _registerPushToken();
       final response = await http.get(Uri.parse('${ConfigService().backendUrl}/notifications?limit=100'), headers: headers).timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) return;
       final items = jsonDecode(response.body) as List;
@@ -107,6 +133,29 @@ class NotificationService {
       _notificationStreamController.add(List.unmodifiable(_notifications));
     } catch (e) {
       debugPrint('Notification sync error: $e');
+    }
+  }
+
+  Future<void> _registerPushToken([String? refreshedToken]) async {
+    if (kIsWeb) return;
+    try {
+      final headers = await _headers();
+      if (!headers.containsKey('Authorization')) return;
+      final settings = await FirebaseMessaging.instance.requestPermission(
+        alert: true, badge: true, sound: true,
+      );
+      if (settings.authorizationStatus == AuthorizationStatus.denied) return;
+      final token = refreshedToken ?? await FirebaseMessaging.instance.getToken();
+      if (token == null || token.isEmpty || token == _registeredPushToken) return;
+      final response = await http.post(
+        Uri.parse('${ConfigService().backendUrl}/notifications/device-token'),
+        headers: headers,
+        body: jsonEncode({'token': token, 'platform': defaultTargetPlatform.name}),
+      ).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) _registeredPushToken = token;
+    } catch (e) {
+      // Firebase can be unconfigured for a build target; in-app notifications still work.
+      debugPrint('Push token registration unavailable: $e');
     }
   }
 
@@ -218,7 +267,8 @@ class NotificationService {
   }
 
   void dispose() {
-    _pollTimer?.cancel();
+    stopPolling();
+    _pushTokenSubscription?.cancel();
     _notificationStreamController.close();
   }
 }

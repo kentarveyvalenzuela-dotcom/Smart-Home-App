@@ -7,6 +7,7 @@ import 'config_service.dart';
 class SyncService {
   final String baseUrl;
   final http.Client _client;
+  final bool _ownsClient;
   
   // Offline queue management
   final List<Map<String, dynamic>> _offlineQueue = [];
@@ -18,7 +19,10 @@ class SyncService {
   Function(int)? onQueueSizeChange;
 
   // baseUrl is optional; if not provided, use ConfigService().backendUrl (production)
-  SyncService({String? baseUrl, http.Client? client}) : baseUrl = baseUrl ?? ConfigService().backendUrl, _client = client ?? http.Client() {
+  SyncService({String? baseUrl, http.Client? client})
+      : baseUrl = baseUrl ?? ConfigService().backendUrl,
+        _client = client ?? http.Client(),
+        _ownsClient = client == null {
     _startRetryTimer();
   }
 
@@ -196,5 +200,8 @@ class SyncService {
   
   void dispose() {
     _retryTimer?.cancel();
+    if (_ownsClient) {
+      _client.close();
+    }
   }
 }

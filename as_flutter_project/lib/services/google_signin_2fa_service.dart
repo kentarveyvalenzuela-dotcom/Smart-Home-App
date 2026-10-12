@@ -9,7 +9,7 @@ import 'config_service.dart';
 
 const _googleClientId = String.fromEnvironment(
   'GOOGLE_CLIENT_ID',
-  defaultValue: '541021035552-46c0utctt41vjagp4a8u7jdasu2csmk3.apps.googleusercontent.com',
+  defaultValue: '',
 );
 
 /// Google OAuth and optional second-factor requests use the app's PostgreSQL API.
@@ -28,6 +28,9 @@ class GoogleSignIn2FAService {
 
   Future<Map<String, dynamic>> signInWithGoogle() async {
     try {
+      if (_googleClientId.isEmpty) {
+        return {'success': false, 'message': 'Google OAuth client ID is missing. Build with --dart-define=GOOGLE_CLIENT_ID=<Web client ID>.'};
+      }
       final account = await _googleSignIn.signIn();
       if (account == null) return {'success': false, 'message': 'Sign-in canceled'};
       final idToken = (await account.authentication).idToken;

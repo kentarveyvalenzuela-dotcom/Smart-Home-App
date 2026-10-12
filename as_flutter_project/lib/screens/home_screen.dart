@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ESP32 online detection
   DateTime? _lastReadingTime;
   Timer? _offlineCheckTimer;
+  Timer? _statsRefreshTimer;
   bool _isEsp32Online = false;
   static const int _offlineTimeoutSeconds =
       10; // Consider offline if no reading for 10 seconds
@@ -128,7 +129,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _loadAlertCount();
 
     // Periodically refresh stats
-    Timer.periodic(const Duration(seconds: 5), (_) {
+    _statsRefreshTimer?.cancel();
+    _statsRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) {
         _loadDeviceStats();
         _loadAlertCount();
@@ -160,8 +162,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
       } else {
         // Try to get from backend
+        final sync = SyncService(baseUrl: ConfigService().backendUrl);
         try {
-          final sync = SyncService(baseUrl: ConfigService().backendUrl);
           final token = await AuthService().getAccessToken();
           if (token != null) {
             final devices = await sync.pullDevices(authToken: token);
@@ -174,6 +176,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           }
         } catch (e) {
           debugPrint('Error loading device stats from backend: $e');
+        } finally {
+          sync.dispose();
         }
       }
     } catch (e) {
@@ -208,6 +212,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _readingSub?.cancel();
     _billSub?.cancel();
     _offlineCheckTimer?.cancel();
+    _statsRefreshTimer?.cancel();
+    _energyService.stopPolling();
     super.dispose();
   }
 
@@ -228,18 +234,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Scaffold(
       extendBody: true,
       appBar: _buildAppBar(isDark),
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: [
-          // Dashboard needs to rebuild for energy data updates
-          _buildDashboardPage(),
-          // These pages keep their state via AutomaticKeepAliveClientMixin
-          _pages[0], // MonitorPage
-          _pages[1], // DevicePage
-          _pages[2], // LogsPage
-          _pages[3], // NotificationsPage
-          _pages[4], // SettingsPage
-        ],
+      body: SlideTransition(
+        position: _slideAnimation,
+        child: IndexedStack(
+          index: _selectedIndex,
+          children: [
+            // Dashboard needs to rebuild for energy data updates
+            _buildDashboardPage(),
+            // These pages keep their state via AutomaticKeepAliveClientMixin
+            _pages[0], // MonitorPage
+            _pages[1], // DevicePage
+            _pages[2], // LogsPage
+            _pages[3], // NotificationsPage
+            _pages[4], // SettingsPage
+          ],
+        ),
       ),
       bottomNavigationBar: _buildBottomNavBar(isDark),
     );

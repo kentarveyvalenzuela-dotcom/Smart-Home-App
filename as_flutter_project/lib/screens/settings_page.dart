@@ -20,6 +20,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _notificationsEnabled = true;
   bool _emailAlertsEnabled = true;
   bool _isOAuthUser = false;
+  bool _twoFactorEnabled = false;
+  bool _isSavingTwoFactor = false;
   String _backendUrl = '';
   bool _isSavingBackend = false;
   bool _isSavingProfile = false;
@@ -67,6 +69,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _notificationsEnabled = prefs['notifications_enabled'] ?? true;
             _emailAlertsEnabled = prefs['email_alerts'] ?? true;
           }
+          _twoFactorEnabled = profile?['two_factor_enabled'] == true;
           _backendUrl = backendUrl;
           _isLoading = false;
         });
@@ -188,7 +191,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final controller = TextEditingController(text: _backendUrl);
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Backend URL'),
         content: TextField(
           controller: controller,
@@ -199,7 +202,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
@@ -207,16 +210,15 @@ class _SettingsPageState extends State<SettingsPage> {
               if (newUrl.isEmpty) return;
               setState(() => _isSavingBackend = true);
               await ConfigService().setBackendUrl(newUrl);
+              if (!mounted || !dialogContext.mounted) return;
               setState(() {
                 _backendUrl = newUrl;
                 _isSavingBackend = false;
               });
-              if (mounted) Navigator.pop(context);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Backend URL updated')),
-                );
-              }
+              Navigator.pop(dialogContext);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Backend URL updated')),
+              );
             },
             child: const Text('Save'),
           ),
@@ -281,17 +283,26 @@ class _SettingsPageState extends State<SettingsPage> {
       final min = result['min']!;
       final max = result['max']!;
       if (min <= 0 || max <= min) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Maximum voltage must be greater than a positive minimum.')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text(
+                    'Maximum voltage must be greater than a positive minimum.')),
+          );
+        }
         return;
       }
       if (mounted) setState(() => _isSavingThresholds = true);
       final saved = await _authService.updateSensorThresholds(
         voltageMin: min, voltageMax: max, amperageMax: ConfigService().amperageMax);
       if (saved == null) {
-        if (mounted) setState(() => _isSavingThresholds = false);
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save thresholds to the backend.')));
+        if (mounted) {
+          setState(() => _isSavingThresholds = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Could not save thresholds to the backend.')),
+          );
+        }
         return;
       }
       await ConfigService().setVoltageMin(min);
@@ -339,8 +350,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (result != null) {
       if (result <= 0) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Amperage threshold must be greater than zero.')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Amperage threshold must be greater than zero.')),
+          );
+        }
         return;
       }
       if (mounted) setState(() => _isSavingThresholds = true);
@@ -349,9 +364,13 @@ class _SettingsPageState extends State<SettingsPage> {
         voltageMax: ConfigService().voltageMax,
         amperageMax: result);
       if (saved == null) {
-        if (mounted) setState(() => _isSavingThresholds = false);
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save thresholds to the backend.')));
+        if (mounted) {
+          setState(() => _isSavingThresholds = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Could not save thresholds to the backend.')),
+          );
+        }
         return;
       }
       await ConfigService().setAmperageMax(result);
@@ -506,6 +525,56 @@ class _SettingsPageState extends State<SettingsPage> {
         MaterialPageRoute(builder: (context) => const AuthPage()),
         (route) => false,
       );
+    }
+  }
+
+  Future<void> _toggleTwoFactor(bool enable) async {
+    setState(() => _isSavingTwoFactor = true);
+    try {
+      if (enable) {
+        final started = await _authService.enable2FA(_profile['email']?.toString() ?? '');
+        if (!mounted) return;
+        if (started?['success'] != true) {
+          throw Exception(started?['error'] ?? started?['detail'] ?? 'Could not send the verification code');
+        }
+        final codeController = TextEditingController();
+        final code = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Verify two-factor setup'),
+            content: TextField(
+              controller: codeController,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              decoration: const InputDecoration(labelText: '6-digit email code'),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, codeController.text.trim()), child: const Text('Verify')),
+            ],
+          ),
+        );
+        codeController.dispose();
+        if (code == null) return;
+        final verified = await _authService.verify2FACode(code);
+        if (verified?['success'] != true) {
+          throw Exception(verified?['error'] ?? verified?['detail'] ?? 'The code is invalid or expired');
+        }
+      } else {
+        final disabled = await _authService.disable2FA('');
+        if (disabled?['success'] != true) {
+          throw Exception(disabled?['error'] ?? disabled?['detail'] ?? 'Could not turn off two-factor authentication');
+        }
+      }
+      if (mounted) setState(() => _twoFactorEnabled = enable);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Two-factor update failed: $error'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingTwoFactor = false);
     }
   }
 
@@ -666,6 +735,25 @@ class _SettingsPageState extends State<SettingsPage> {
 
                   const SizedBox(height: 24),
 
+                  _buildSectionTitle('Security', isDark),
+                  const SizedBox(height: 12),
+                  _buildSettingsCard([
+                    _buildSwitchTile(
+                      icon: Icons.verified_user_rounded,
+                      iconColor: AppColors.electricPurple,
+                      title: 'Two-factor authentication',
+                      subtitle: _twoFactorEnabled
+                          ? 'Email verification required at sign-in'
+                          : 'Add an email verification step at sign-in',
+                      value: _twoFactorEnabled,
+                      onChanged: _isSavingTwoFactor ? null : _toggleTwoFactor,
+                      isLoading: _isSavingTwoFactor,
+                      isDark: isDark,
+                    ),
+                  ], isDark),
+
+                  const SizedBox(height: 24),
+
                   // Preferences Section
                   _buildSectionTitle('Preferences', isDark),
                   const SizedBox(height: 12),
@@ -724,9 +812,18 @@ class _SettingsPageState extends State<SettingsPage> {
                       title: 'Voltage Thresholds',
                       subtitle:
                           'Min: ${ConfigService().voltageMin}V, Max: ${ConfigService().voltageMax}V',
-                      trailing: Icon(Icons.chevron_right_rounded,
-                          color: Colors.grey.shade400),
-                      onTap: _showVoltageThresholdDialog,
+                      trailing: _isSavingThresholds
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.primaryBlue))
+                          : Icon(Icons.chevron_right_rounded,
+                              color: Colors.grey.shade400),
+                      onTap: _isSavingThresholds
+                          ? null
+                          : _showVoltageThresholdDialog,
                       isDark: isDark,
                     ),
                     _buildSettingsTile(
@@ -734,9 +831,18 @@ class _SettingsPageState extends State<SettingsPage> {
                       iconColor: AppColors.warning,
                       title: 'Amperage Threshold',
                       subtitle: 'Max: ${ConfigService().amperageMax}A',
-                      trailing: Icon(Icons.chevron_right_rounded,
-                          color: Colors.grey.shade400),
-                      onTap: _showAmperageThresholdDialog,
+                      trailing: _isSavingThresholds
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.primaryBlue))
+                          : Icon(Icons.chevron_right_rounded,
+                              color: Colors.grey.shade400),
+                      onTap: _isSavingThresholds
+                          ? null
+                          : _showAmperageThresholdDialog,
                       isDark: isDark,
                     ),
                   ], isDark),

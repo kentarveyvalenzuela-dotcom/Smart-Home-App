@@ -7,7 +7,6 @@ import '../services/mqtt_service.dart';
 import '../services/config_service.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
-import '../utils/smooth_ui.dart';
 import '../main.dart';
 
 class DevicePage extends StatefulWidget {
@@ -119,6 +118,7 @@ class _DevicePageState extends State<DevicePage>
     await _loadDeletedDeviceIds();
 
     // STEP 1: Load from cache FIRST (instant display)
+    await _clearOldCache();
     await _loadAppliancesFromCache();
     debugPrint('[INIT] Loaded ${appliances.length} devices from cache');
 
@@ -347,6 +347,7 @@ class _DevicePageState extends State<DevicePage>
     _connectionSub?.cancel();
     _errorSub?.cancel();
     _messageSub?.cancel();
+    _sync.dispose();
     super.dispose();
   }
 
@@ -398,8 +399,8 @@ class _DevicePageState extends State<DevicePage>
       }
       final authService = AuthService();
       final result = await authService.sendDeviceControl(
-        device_id: (appliance['backend_device_id'] ?? mqttDeviceId).toString(),
-        pin_number: (appliance['pin'] as int?) ?? 23,
+        deviceId: (appliance['backend_device_id'] ?? mqttDeviceId).toString(),
+        pinNumber: (appliance['pin'] as int?) ?? 23,
         action: action.toUpperCase(),
       );
       return result?['success'] == true && result?['mqtt_published'] == true;
@@ -569,6 +570,7 @@ class _DevicePageState extends State<DevicePage>
                             mqttClientId: mqttId, // Use the correct MQTT ID
                             location: '',
                           );
+                          if (!mounted || !dialogContext.mounted) return;
 
                           String? backendDeviceId;
                           if (registerResult?['success'] == true) {
@@ -600,6 +602,7 @@ class _DevicePageState extends State<DevicePage>
                           });
 
                           await _saveAppliancesToCache();
+                          if (!mounted || !dialogContext.mounted) return;
                           _resubscribeAppliances();
 
                           // Add notification for device add
@@ -629,109 +632,6 @@ class _DevicePageState extends State<DevicePage>
           },
         );
       },
-    );
-  }
-
-  Widget _buildApplianceCard(Map<String, dynamic> appliance, int index) {
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 4,
-      child: ListTile(
-        leading: GestureDetector(
-          onTap: () async {
-            final isTurningOn = !appliances[index]['isOn'];
-            final action = isTurningOn ? 'ON' : 'OFF';
-            final topic = appliances[index]['topic'] as String;
-            final deviceName =
-                appliances[index]['name'] as String? ?? 'Unknown Device';
-            final location = appliances[index]['location'] as String?;
-
-            setState(() {
-              appliances[index]['isOn'] = isTurningOn;
-            });
-
-            final success = await _sendDeviceControl(topic, action);
-
-            if (success) {
-              // Add notification for successful device toggle
-              NotificationService().addDeviceToggleNotification(
-                deviceName: deviceName,
-                action: action,
-                location: location,
-              );
-            }
-
-            if (!success && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('⚠️ Failed to control ${appliance['name']}'),
-                  backgroundColor: Colors.red,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-
-              setState(() {
-                appliances[index]['isOn'] = !isTurningOn;
-              });
-            }
-          },
-          child: Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: appliances[index]['isOn'] ? Colors.green : Colors.red,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(77),
-                  blurRadius: 6,
-                  offset: const Offset(0, 3),
-                )
-              ],
-            ),
-            child: const Icon(Icons.power_settings_new,
-                color: Colors.white, size: 30),
-          ),
-        ),
-        title: Text(
-          appliance['name'] as String? ?? 'Unknown',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text(
-          appliance['topic'] as String? ?? 'No topic',
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              appliances[index]['isOn']
-                  ? Icons.check_circle
-                  : Icons.highlight_off,
-              color: appliances[index]['isOn'] ? Colors.green : Colors.red,
-            ),
-            const SizedBox(width: 8),
-            PopupMenuButton<String>(
-              tooltip: 'Device actions',
-              icon: const Icon(Icons.more_vert),
-              onSelected: (action) async {
-                if (action == 'edit') {
-                  await _editAppliance(index);
-                } else if (action == 'delete') {
-                  await _deleteAppliance(index);
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem<String>(
-                    value: 'edit', child: Text('Edit name')),
-                const PopupMenuItem<String>(
-                    value: 'delete', child: Text('Delete')),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -809,10 +709,17 @@ class _DevicePageState extends State<DevicePage>
       debugPrint('[DELETE] Backend result: $deleteResult');
 
       if (deleteResult['success'] == true) {
+        _deletedDeviceIds
+          ..add(deviceId)
+          ..add(backendDeviceId);
+        await _saveDeletedDeviceIds();
+
         // 2. Remove from local list
-        setState(() {
-          appliances.removeAt(index);
-        });
+        if (mounted) {
+          setState(() {
+            appliances.removeAt(index);
+          });
+        }
 
         // 3. Save updated cache
         await _saveAppliancesToCache();
@@ -1146,9 +1053,10 @@ class _DevicePageState extends State<DevicePage>
                       ),
                     ),
                     Text(
-                      isConnected
-                          ? 'Real-time device updates active'
-                          : 'Device control works via Heroku',
+                      _backendStatus ??
+                          (isConnected
+                              ? 'Real-time device updates active'
+                              : 'Device control works via backend'),
                       style:
                           TextStyle(fontSize: 12, color: Colors.grey.shade500),
                     ),
@@ -1403,7 +1311,6 @@ class _DevicePageState extends State<DevicePage>
       Map<String, dynamic> appliance, int index, bool isDark) {
     final isOn = appliances[index]['isOn'] ?? false;
     final deviceName = appliance['name'] as String? ?? 'Unknown';
-    final deviceTopic = appliance['topic'] as String? ?? 'No topic';
     final pin = appliance['pin'] ?? 23;
 
     return TweenAnimationBuilder<double>(

@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
 import 'screens/auth_page.dart';
 import 'screens/monitor_page.dart';
 import 'screens/home_screen.dart';
 import 'services/mqtt_service.dart';
-import 'services/firebase_database_service.dart';
 import 'services/config_service.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
@@ -66,20 +63,6 @@ void main() async {
   // Initialize connectivity monitoring
   await ConnectivityService().initialize();
 
-  // Initialize Firebase
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    debugPrint('✅ Firebase initialized successfully');
-  } catch (e) {
-    debugPrint('⚠️ Firebase initialization error: $e');
-  }
-
-  // Initialize Firebase Realtime Database
-  debugPrint('🔥 Initializing Firebase Realtime Database...');
-  await FirebaseDbService().initialize();
-
   // Initialize Notification Service
   debugPrint('📢 Initializing Notification Service...');
   await NotificationService().initialize();
@@ -90,9 +73,8 @@ void main() async {
     debugPrint('⚠️ MQTT initialization error (non-blocking): $e');
   });
 
-  // Default app startup goes directly to the dashboard to bypass the login gate.
-  // The login page remains available under /login if needed.
-  String initialRoute = '/home';
+  // Require users to sign in before opening the dashboard.
+  String initialRoute = '/login';
   if (kIsWeb) {
     try {
       final params = Uri.base.queryParameters;
