@@ -390,10 +390,17 @@ class _LogsPageState extends State<LogsPage>
     Color iconColor = AppColors.primaryBlue;
 
     if (log is Map<String, dynamic>) {
-      if (log.containsKey('device_name') && log.containsKey('action')) {
-        title = log['device_name'] ?? 'Device';
-        subtitle = log['action'] ?? '';
-        final isOn = log['action'] == 'ON';
+      final metadata = log['metadata'] is Map
+          ? Map<String, dynamic>.from(log['metadata'] as Map)
+          : <String, dynamic>{};
+      final command = (log['command'] ?? metadata['command'])?.toString();
+      if (log['log_type'] == 'device_control' || command != null) {
+        title = log['device_name'] ?? 'Device ${log['device_id'] ?? ''}';
+        final status = metadata['status']?.toString();
+        subtitle = [command ?? log['message'] ?? 'Device control', status]
+            .where((part) => part != null && part.toString().isNotEmpty)
+            .join(' • ');
+        final isOn = command?.toUpperCase() == 'ON';
         icon = isOn ? Icons.power_rounded : Icons.power_off_rounded;
         iconColor = isOn ? AppColors.electricGreen : AppColors.warning;
       } else if (log.containsKey('sensor_type') && log.containsKey('value')) {

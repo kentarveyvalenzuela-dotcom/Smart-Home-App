@@ -1,279 +1,85 @@
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'config_service.dart';
 
-/// Google Sign-In with 2FA Authentication Service
-/// Integrates with backend for two-factor authentication
+const _googleClientId = String.fromEnvironment(
+  'GOOGLE_CLIENT_ID',
+  defaultValue: '541021035552-46c0utctt41vjagp4a8u7jdasu2csmk3.apps.googleusercontent.com',
+);
+
+/// Google OAuth and optional second-factor requests use the app's PostgreSQL API.
 class GoogleSignIn2FAService {
   static final GoogleSignIn2FAService _instance = GoogleSignIn2FAService._internal();
   factory GoogleSignIn2FAService() => _instance;
   GoogleSignIn2FAService._internal();
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  String get backendUrl => ConfigService().backendUrl;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId: kIsWeb ? _googleClientId : null,
+    serverClientId: _googleClientId,
     scopes: ['email', 'profile'],
   );
+  bool get isSignedIn => false;
 
-  // Backend URL - Update this to your backend server
-  String backendUrl = ConfigService().backendUrl;
-
-  User? get currentUser => _auth.currentUser;
-  bool get isSignedIn => _auth.currentUser != null;
-
-  /// Step 1: Sign in with Google
-  /// Returns: Map with 'requires2FA' and 'email' if 2FA is needed
   Future<Map<String, dynamic>> signInWithGoogle() async {
     try {
-      // First, sign out to clear any stale tokens
-      await _googleSignIn.signOut();
-
-      // Trigger Google Sign-In flow (fresh)
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      
-      if (googleUser == null) {
-        // User canceled the sign-in
-        return {'success': false, 'message': 'Sign-in canceled'};
-      }
-
-      // Obtain FRESH auth details
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-
-      // Verify we have tokens
-      if (googleAuth.idToken == null) {
-        debugPrint('❌ No ID token received from Google');
-        return {'success': false, 'message': 'Failed to get authentication token'};
-      }
-
-      // Create Firebase credential
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      // Sign in to Firebase
-      final UserCredential userCredential = await _auth.signInWithCredential(credential);
-      
-      // Get FRESH Firebase ID token (force refresh)
-      final String? idToken = await userCredential.user?.getIdToken(true);
-
-      if (idToken == null) {
-        throw Exception('Failed to get ID token');
-      }
-
-      debugPrint('✅ Got fresh Firebase ID token (length: ${idToken.length})');
-
-      // Send to backend to check if 2FA is required
-      final response = await http.post(
-        Uri.parse('$backendUrl/auth/google-signin'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'id_token': idToken}),
-      ).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        if (data['requires_2fa'] == true) {
-          // 2FA required
-          return {
-            'success': true,
-            'requires2FA': true,
-            'email': userCredential.user?.email,
-            'message': data['message'] ?? '2FA code sent to your email'
-          };
-        } else {
-          // No 2FA required, sign-in complete
-          return {
-            'success': true,
-            'requires2FA': false,
-            'user': userCredential.user,
-            'message': 'Sign-in successful'
-          };
-        }
-      } else {
-        final error = json.decode(response.body);
-        throw Exception(error['detail'] ?? 'Backend error');
-      }
-      
+      final account = await _googleSignIn.signIn();
+      if (account == null) return {'success': false, 'message': 'Sign-in canceled'};
+      final idToken = (await account.authentication).idToken;
+      if (idToken == null) return {'success': false, 'message': 'Google did not return an ID token'};
+      final response = await http.post(Uri.parse('$backendUrl/auth/google-signin'),
+        headers: {'Content-Type': 'application/json'}, body: jsonEncode({'id_token': idToken})).timeout(const Duration(seconds: 15));
+      final data = jsonDecode(response.body);
+      if (response.statusCode != 200) return {'success': false, 'message': data['detail'] ?? 'Google sign-in failed'};
+      if (data['requires_2fa'] == true) return {'success': true, 'requires2FA': true, 'email': account.email};
+      final token = data['access_token']?.toString() ?? '';
+      if (token.isEmpty) return {'success': false, 'message': 'Backend did not issue an application token'};
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('access_token', token);
+      return {'success': true, 'requires2FA': false, 'user': data['user'], 'email': account.email, 'message': 'Sign-in successful'};
     } catch (e) {
-      debugPrint('❌ Google Sign-In error: $e');
-
-      // If token is stale, try to sign out and suggest retry
-      if (e.toString().contains('stale') || e.toString().contains('expired')) {
-        await _googleSignIn.signOut();
-        await _auth.signOut();
-        return {
-          'success': false,
-          'message': 'Session expired. Please try again.'
-        };
-      }
-
-      return {
-        'success': false,
-        'message': 'Sign-in failed: ${e.toString()}'
-      };
+      debugPrint('Google sign-in error: $e');
+      return {'success': false, 'message': e.toString()};
     }
   }
 
-  /// Step 2: Verify 2FA code
-  Future<Map<String, dynamic>> verify2FACode(String email, String code) async {
+  Future<Map<String, dynamic>> verify2FACode(String email, String code) async => _post('/auth/verify-2fa', {'email': email, 'code': code}, storeToken: true);
+  Future<Map<String, dynamic>> request2FACode(String email) async => _post('/auth/request-2fa', {'email': email, 'method': 'email'});
+
+  Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body, {bool storeToken = false}) async {
     try {
-      final response = await http.post(
-        Uri.parse('$backendUrl/auth/verify-2fa'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'email': email,
-          'code': code,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        // Sign in with custom token from backend
-        if (data['token'] != null) {
-          await _auth.signInWithCustomToken(data['token']);
-        }
-        
-        return {
-          'success': true,
-          'user': _auth.currentUser,
-          'message': data['message'] ?? '2FA verification successful'
-        };
-      } else {
-        final error = json.decode(response.body);
-        return {
-          'success': false,
-          'message': error['detail'] ?? 'Invalid 2FA code'
-        };
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+      final response = await http.post(Uri.parse('$backendUrl$path'), headers: {
+        'Content-Type': 'application/json', if (token != null) 'Authorization': 'Bearer $token',
+      }, body: jsonEncode(body)).timeout(const Duration(seconds: 12));
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (storeToken && data['access_token'] != null) await prefs.setString('access_token', data['access_token'].toString());
+        return {'success': true, ...data};
       }
-      
-    } catch (e) {
-      debugPrint('❌ 2FA verification error: $e');
-      return {
-        'success': false,
-        'message': 'Verification failed: ${e.toString()}'
-      };
-    }
+      return {'success': false, 'message': data['detail'] ?? 'Request failed'};
+    } catch (e) { return {'success': false, 'message': e.toString()}; }
   }
 
-  /// Request new 2FA code
-  Future<Map<String, dynamic>> request2FACode(String email) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$backendUrl/auth/request-2fa'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'email': email,
-          'method': 'email',
-        }),
-      );
+  Future<bool> enable2FA() async => (await _post('/settings/2fa/enable', {}))['success'] == true;
+  Future<bool> disable2FA() async => (await _post('/settings/2fa/disable', {}))['success'] == true;
+  Future<void> signOut() async => _googleSignIn.signOut();
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return {
-          'success': true,
-          'message': data['message'] ?? '2FA code sent'
-        };
-      } else {
-        final error = json.decode(response.body);
-        return {
-          'success': false,
-          'message': error['detail'] ?? 'Failed to send code'
-        };
-      }
-      
-    } catch (e) {
-      debugPrint('❌ Request 2FA error: $e');
-      return {
-        'success': false,
-        'message': 'Failed to request code: ${e.toString()}'
-      };
-    }
-  }
-
-  /// Enable 2FA for current user
-  Future<bool> enable2FA() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return false;
-
-      final idToken = await user.getIdToken();
-      
-      final response = await http.post(
-        Uri.parse('$backendUrl/auth/enable-2fa'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'email': user.email,
-          'id_token': idToken,
-        }),
-      );
-
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint('❌ Enable 2FA error: $e');
-      return false;
-    }
-  }
-
-  /// Disable 2FA for current user
-  Future<bool> disable2FA() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return false;
-
-      final idToken = await user.getIdToken();
-      
-      final response = await http.post(
-        Uri.parse('$backendUrl/auth/disable-2fa'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'email': user.email,
-          'id_token': idToken,
-        }),
-      );
-
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint('❌ Disable 2FA error: $e');
-      return false;
-    }
-  }
-
-  /// Sign out
-  Future<void> signOut() async {
-    try {
-      await _googleSignIn.signOut();
-      await _auth.signOut();
-      debugPrint('✅ Signed out successfully');
-    } catch (e) {
-      debugPrint('❌ Sign out error: $e');
-    }
-  }
-
-  /// Get user profile from backend
   Future<Map<String, dynamic>?> getUserProfile() async {
     try {
-      final user = _auth.currentUser;
-      if (user == null) return null;
-
-      final idToken = await user.getIdToken();
-      
-      final response = await http.get(
-        Uri.parse('$backendUrl/auth/user/${user.uid}?id_token=$idToken'),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return data['user'];
-      }
-      return null;
-    } catch (e) {
-      debugPrint('❌ Get profile error: $e');
-      return null;
-    }
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+      if (token == null) return null;
+      final response = await http.get(Uri.parse('$backendUrl/auth/me'), headers: {'Authorization': 'Bearer $token'});
+      if (response.statusCode != 200) return null;
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return body['user'] is Map ? Map<String, dynamic>.from(body['user']) : null;
+    } catch (e) { debugPrint('Profile lookup failed: $e'); return null; }
   }
 }

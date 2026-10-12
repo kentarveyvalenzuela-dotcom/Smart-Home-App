@@ -295,16 +295,16 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <math.h>
+#include "secrets.h"
 
 // ==================== CONFIGURATION ====================
 // WiFi Credentials
-const char* ssid = "YOUR_WIFI_SSID";           // Change this!
-const char* password = "YOUR_WIFI_PASSWORD";   // Change this!
+const char* ssid = WIFI_SSID;
+const char* password = WIFI_PASSWORD;
 
-// Firebase Configuration
-const char* FIREBASE_HOST = "smart-home-iot-5ef3e-default-rtdb.asia-southeast1.firebasedatabase.app";
-const char* FIREBASE_AUTH = "AIzaSyDWsNL0M372W1Q9LRMK4l1hOqZ4c42SjLY";
-const char* USER_ID = "YOUR_FIREBASE_USER_ID"; // Get from Firebase Auth
+// PostgreSQL API ingestion settings
+const char* API_BASE_URL = BACKEND_API_BASE_URL;
+const char* energyDeviceId = ENERGY_DEVICE_ID; // Must match the registered energy device ID
 
 // ==================== PIN DEFINITIONS (YOUR SETUP) ====================
 #define ZMPT_PIN        13    // Voltage sensor (ZMPT101B) - GPIO13
@@ -338,7 +338,8 @@ unsigned long lastUpdate = 0;
 void setupWiFi();
 double readVoltage();
 double readCurrent(int pin);
-void sendToFirebase();
+void sendEnergyToPostgres();
+void sendSensorReadingsToPostgres();
 
 // ==================== SETUP ====================
 void setup() {
@@ -384,7 +385,8 @@ void loop() {
     Serial.printf("Total: %.2f A | Power: %.1f W | Energy: %.4f kWh\n",
                   current_total, power, energy_kwh);
 
-    sendToFirebase();
+    sendEnergyToPostgres();
+    sendSensorReadingsToPostgres();
   }
 }
 
@@ -449,39 +451,56 @@ double readCurrent(int pin) {
   return irms * CURRENT_CALIBRATION;
 }
 
-// ==================== SEND TO FIREBASE ====================
-void sendToFirebase() {
+// ==================== SEND ENERGY TO POSTGRES API ====================
+void sendEnergyToPostgres() {
   if (WiFi.status() != WL_CONNECTED) return;
-
   HTTPClient http;
-  String url = "https://" + String(FIREBASE_HOST) +
-               "/users/" + String(USER_ID) +
-               "/sensors/energy.json?auth=" + String(FIREBASE_AUTH);
-
+  String url = String(API_BASE_URL) + "/ingest/energy?device_id=" + String(energyDeviceId);
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-
+  http.addHeader("X-Device-API-Key", DEVICE_INGEST_API_KEY);
   StaticJsonDocument<512> doc;
   doc["voltage"] = voltage;
   doc["current"] = current_total;
   doc["power"] = power;
   doc["energy"] = energy_kwh;
-  doc["timestamp"] = millis();
-
   JsonObject channels = doc.createNestedObject("channels");
   channels["ch1"] = current_ch1;
   channels["ch2"] = current_ch2;
   channels["ch3"] = current_ch3;
   channels["ch4"] = current_ch4;
-
   String payload;
   serializeJson(doc, payload);
+  int httpCode = http.POST(payload);
+  if (httpCode >= 200 && httpCode < 300) Serial.println("[API] Energy upload OK");
+  else { Serial.print("[API] Energy upload failed: "); Serial.println(httpCode); }
+  http.end();
+}
 
-  int httpCode = http.PUT(payload);
-  if (httpCode == HTTP_CODE_OK) {
-    Serial.println("✓ Firebase OK");
+void sendSensorReadingsToPostgres() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  HTTPClient http;
+  String url = String(API_BASE_URL) + "/ingest/sensors?device_id=" + String(energyDeviceId);
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-API-Key", DEVICE_INGEST_API_KEY);
+  String json = "{\"readings\":[";
+  json += "{\"sensor_type\":\"voltage\",\"value\":" + String(voltage, 2) + ",\"unit\":\"V\"},";
+  json += "{\"sensor_type\":\"current\",\"value\":" + String(current_total, 2) + ",\"unit\":\"A\"},";
+  json += "{\"sensor_type\":\"power\",\"value\":" + String(power, 2) + ",\"unit\":\"W\"},";
+  json += "{\"sensor_type\":\"energy\",\"value\":" + String(energy_kwh, 4) + ",\"unit\":\"kWh\"},";
+  json += "{\"sensor_type\":\"channel_ch1_current\",\"value\":" + String(current_ch1, 2) + ",\"unit\":\"A\"},";
+  json += "{\"sensor_type\":\"channel_ch2_current\",\"value\":" + String(current_ch2, 2) + ",\"unit\":\"A\"},";
+  json += "{\"sensor_type\":\"channel_ch3_current\",\"value\":" + String(current_ch3, 2) + ",\"unit\":\"A\"},";
+  json += "{\"sensor_type\":\"channel_ch4_current\",\"value\":" + String(current_ch4, 2) + ",\"unit\":\"A\"}]}";
+  int httpCode = http.POST(json);
+  if (httpCode >= 200 && httpCode < 300) Serial.println("[API] Sensor readings upload OK");
+  else {
+    Serial.print("[API] Sensor readings upload failed: ");
+    Serial.print(httpCode);
+    Serial.print(" ");
+    Serial.println(http.getString());
   }
-
   http.end();
 }
 

@@ -98,6 +98,12 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
 
       if (result != null && result['success']) {
         if (isLogin) {
+          if (result['requires2FA'] == true) {
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => GoogleSignIn2FAPage(email: result?['email']?.toString()),
+            ));
+            return;
+          }
           _showSnackBar('Welcome back!');
           // Add notification for email sign-in
           NotificationService()
@@ -487,11 +493,9 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                               // Check if 2FA is required
                                               if (result['requires2FA'] ==
                                                   true) {
-                                                // TODO: Navigate to 2FA page
-                                                _showSnackBar(
-                                                    '2FA required - redirecting...',
-                                                    isError: false);
-                                                // Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GoogleSignIn2FAPage()));
+                                                Navigator.of(context).push(MaterialPageRoute(
+                                                  builder: (_) => GoogleSignIn2FAPage(email: result?['email']?.toString()),
+                                                ));
                                               } else {
                                                 _showSnackBar(
                                                     'Google sign-in successful!');
@@ -517,7 +521,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                                   isError: true);
                                             }
                                           } else {
-                                            // Mobile: use GoogleSignIn2FAService which signs in with Firebase and informs backend
+                                            // Mobile: exchange the Google identity with the backend for an app session.
                                             final mobileRes =
                                                 await GoogleSignIn2FAService()
                                                     .signInWithGoogle();
@@ -528,7 +532,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                                                 Navigator.of(context).push(
                                                     MaterialPageRoute(
                                                         builder: (_) =>
-                                                            const GoogleSignIn2FAPage()));
+                                                            GoogleSignIn2FAPage(email: mobileRes['email']?.toString())));
                                               } else {
                                                 _showSnackBar(
                                                     'Google sign-in successful!');

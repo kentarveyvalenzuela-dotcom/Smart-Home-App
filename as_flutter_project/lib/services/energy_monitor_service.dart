@@ -1,357 +1,155 @@
-// filepath: c:\Users\Ivy\OneDrive\Desktop\New folder\brix\as_flutter_project\lib\services\energy_monitor_service.dart
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
-import 'package:firebase_database/firebase_database.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 
-/// Energy reading from sensors
+import 'auth_service.dart';
+import 'config_service.dart';
+
 class EnergyReading {
-  final double voltage;       // Volts (from ZMPT101B)
-  final double current;       // Amps (from SCT-013 sensors)
-  final double power;         // Watts (calculated: V × I)
-  final double energy;        // kWh (accumulated)
+  final double voltage;
+  final double current;
+  final double power;
+  final double energy;
   final DateTime timestamp;
-  final Map<String, double> currentPerChannel;  // Individual SCT readings
+  final Map<String, double> currentPerChannel;
 
-  EnergyReading({
-    required this.voltage,
-    required this.current,
-    required this.power,
-    required this.energy,
-    required this.timestamp,
-    this.currentPerChannel = const {},
-  });
+  EnergyReading({required this.voltage, required this.current, required this.power, required this.energy, required this.timestamp, this.currentPerChannel = const {}});
 
-  factory EnergyReading.fromJson(Map<String, dynamic> json) {
-    // Handle timestamp - can be String (ISO format) or int (milliseconds)
-    DateTime parseTimestamp(dynamic value) {
-      if (value == null) return DateTime.now();
-      if (value is String) {
-        try {
-          return DateTime.parse(value);
-        } catch (e) {
-          return DateTime.now();
-        }
-      }
-      if (value is int) {
-        // If it's a small number, treat as uptime milliseconds from ESP32
-        // If it's a large number (Unix timestamp), convert accordingly
-        if (value > 1000000000000) {
-          // Unix timestamp in milliseconds
-          return DateTime.fromMillisecondsSinceEpoch(value);
-        } else if (value > 1000000000) {
-          // Unix timestamp in seconds
-          return DateTime.fromMillisecondsSinceEpoch(value * 1000);
-        } else {
-          // ESP32 uptime in milliseconds - just use current time
-          return DateTime.now();
-        }
-      }
-      return DateTime.now();
-    }
+  factory EnergyReading.fromJson(Map<String, dynamic> json) => EnergyReading(
+        voltage: (json['voltage'] as num?)?.toDouble() ?? 0,
+        current: (json['current'] as num?)?.toDouble() ?? 0,
+        power: (json['power'] as num?)?.toDouble() ?? 0,
+        energy: (json['energy'] as num?)?.toDouble() ?? 0,
+        timestamp: DateTime.tryParse('${json['timestamp'] ?? ''}') ?? DateTime.now(),
+        currentPerChannel: json['channels'] is Map
+            ? Map<String, double>.from((json['channels'] as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble())))
+            : const {},
+      );
 
-    return EnergyReading(
-      voltage: (json['voltage'] ?? 0).toDouble(),
-      current: (json['current'] ?? 0).toDouble(),
-      power: (json['power'] ?? 0).toDouble(),
-      energy: (json['energy'] ?? 0).toDouble(),
-      timestamp: parseTimestamp(json['timestamp']),
-      currentPerChannel: json['channels'] != null
-          ? Map<String, double>.from(
-              (json['channels'] as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble())))
-          : {},
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-    'voltage': voltage,
-    'current': current,
-    'power': power,
-    'energy': energy,
-    'timestamp': timestamp.toIso8601String(),
-    'channels': currentPerChannel,
-  };
+  Map<String, dynamic> toJson() => {'voltage': voltage, 'current': current, 'power': power, 'energy': energy, 'timestamp': timestamp.toIso8601String(), 'channels': currentPerChannel};
 }
 
-/// Billing calculation
 class EnergyBill {
-  final double totalKwh;
-  final double ratePerKwh;
-  final double totalCost;
-  final DateTime periodStart;
-  final DateTime periodEnd;
+  final double totalKwh, ratePerKwh, totalCost, averageDailyKwh, projectedMonthlyKwh, projectedMonthlyCost;
+  final DateTime periodStart, periodEnd;
   final int daysInPeriod;
-  final double averageDailyKwh;
-  final double projectedMonthlyKwh;
-  final double projectedMonthlyCost;
-
-  EnergyBill({
-    required this.totalKwh,
-    required this.ratePerKwh,
-    required this.totalCost,
-    required this.periodStart,
-    required this.periodEnd,
-    required this.daysInPeriod,
-    required this.averageDailyKwh,
-    required this.projectedMonthlyKwh,
-    required this.projectedMonthlyCost,
-  });
+  EnergyBill({required this.totalKwh, required this.ratePerKwh, required this.totalCost, required this.periodStart, required this.periodEnd, required this.daysInPeriod, required this.averageDailyKwh, required this.projectedMonthlyKwh, required this.projectedMonthlyCost});
 }
 
-/// Energy Monitor Service - Handles voltage & current sensors
+/// Energy monitoring backed by PostgreSQL via the authenticated app API.
 class EnergyMonitorService {
   static final EnergyMonitorService _instance = EnergyMonitorService._internal();
   factory EnergyMonitorService() => _instance;
   EnergyMonitorService._internal();
 
-  // Stream controllers
   final _readingStreamController = StreamController<EnergyReading>.broadcast();
   final _billStreamController = StreamController<EnergyBill>.broadcast();
-
   Stream<EnergyReading> get readingStream => _readingStreamController.stream;
   Stream<EnergyBill> get billStream => _billStreamController.stream;
 
-  // State
   EnergyReading? _latestReading;
   EnergyBill? _currentBill;
-  double _totalEnergyKwh = 0.0;
+  double _totalEnergyKwh = 0;
   DateTime? _periodStart;
-
-  StreamSubscription<DatabaseEvent>? _sensorSubscription;
+  Timer? _sensorPollTimer;
   Timer? _billCalculationTimer;
-
-  // Configuration - Philippine electricity rates (Meralco approximation)
-  double _ratePerKwh = 11.85; // PHP per kWh (adjust as needed)
-
-  // Getters
+  double _ratePerKwh = 11.85;
+  DateTime? get _lastReadingTimestamp => _latestReading?.timestamp;
   EnergyReading? get latestReading => _latestReading;
   EnergyBill? get currentBill => _currentBill;
   double get ratePerKwh => _ratePerKwh;
 
-  /// Initialize the service
   Future<void> initialize() async {
-    debugPrint('⚡ Initializing Energy Monitor Service...');
-
-    _periodStart = DateTime.now().subtract(const Duration(days: 30));
-
-    // Listen to sensor data from Firebase
-    _listenToSensorData();
-
-    // Start periodic bill calculation
-    _startBillCalculation();
-
-    // Load historical data
+    _periodStart ??= DateTime.now().subtract(const Duration(days: 30));
     await _loadHistoricalData();
-
-    debugPrint('✅ Energy Monitor Service initialized');
+    _startBillCalculation();
+    _sensorPollTimer?.cancel();
+    _sensorPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _pollLatestReading());
+    await _pollLatestReading();
   }
 
-  /// Listen to real-time sensor data from Firebase
-  void _listenToSensorData() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final ref = FirebaseDatabase.instance
-        .ref()
-        .child('users')
-        .child(user.uid)
-        .child('sensors')
-        .child('energy');
-
-    _sensorSubscription?.cancel();
-    _sensorSubscription = ref.onValue.listen((event) {
-      if (event.snapshot.exists && event.snapshot.value != null) {
-        try {
-          final data = Map<String, dynamic>.from(event.snapshot.value as Map);
-          final reading = EnergyReading.fromJson(data);
-
-          _latestReading = reading;
-          _readingStreamController.add(reading);
-
-          // Accumulate energy
-          _accumulateEnergy(reading);
-
-          debugPrint('⚡ Energy reading: ${reading.voltage}V, ${reading.current}A, ${reading.power}W');
-        } catch (e) {
-          debugPrint('❌ Error parsing energy data: $e');
-        }
-      }
-    }, onError: (error) {
-      debugPrint('❌ Firebase energy listener error: $error');
-    });
+  Future<Map<String, String>?> _authHeaders() async {
+    final headers = await AuthService().getAuthHeaders();
+    if (!headers.containsKey('Authorization')) return null;
+    headers['Content-Type'] = 'application/json';
+    return headers;
   }
 
-  /// Accumulate energy consumption
-  void _accumulateEnergy(EnergyReading reading) {
-    // Simple accumulation - in reality, you'd integrate power over time
-    // power (W) × time (hours) = energy (Wh)
-    // For real-time updates every second: power × (1/3600) = Wh per reading
-    _totalEnergyKwh += reading.power / 3600000; // Convert Wh to kWh
+  Future<void> _pollLatestReading() async {
+    try {
+      final headers = await _authHeaders();
+      if (headers == null) return;
+      final response = await http.get(Uri.parse('${ConfigService().backendUrl}/energy/current'), headers: headers).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200 || response.body.trim().isEmpty || response.body.trim() == '{}') return;
+      final reading = EnergyReading.fromJson(Map<String, dynamic>.from(jsonDecode(response.body)));
+      if (_lastReadingTimestamp == reading.timestamp) return;
+      _latestReading = reading;
+      _totalEnergyKwh = reading.energy;
+      _readingStreamController.add(reading);
+      _calculateBill();
+    } catch (e) { debugPrint('Energy API polling failed: $e'); }
   }
 
-  /// Start periodic bill calculation
   void _startBillCalculation() {
     _billCalculationTimer?.cancel();
-    _billCalculationTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      _calculateBill();
-    });
-
-    // Calculate immediately
+    _billCalculationTimer = Timer.periodic(const Duration(minutes: 1), (_) => _calculateBill());
     _calculateBill();
   }
 
-  /// Calculate current bill
   void _calculateBill() {
     if (_periodStart == null) return;
-
     final now = DateTime.now();
-    final daysInPeriod = now.difference(_periodStart!).inDays.clamp(1, 365);
-
-    final totalCost = _totalEnergyKwh * _ratePerKwh;
-    final avgDaily = _totalEnergyKwh / daysInPeriod;
-    final projectedMonthly = avgDaily * 30;
-    final projectedCost = projectedMonthly * _ratePerKwh;
-
-    _currentBill = EnergyBill(
-      totalKwh: _totalEnergyKwh,
-      ratePerKwh: _ratePerKwh,
-      totalCost: totalCost,
-      periodStart: _periodStart!,
-      periodEnd: now,
-      daysInPeriod: daysInPeriod,
-      averageDailyKwh: avgDaily,
-      projectedMonthlyKwh: projectedMonthly,
-      projectedMonthlyCost: projectedCost,
-    );
-
+    final days = now.difference(_periodStart!).inDays.clamp(1, 365);
+    final cost = _totalEnergyKwh * _ratePerKwh;
+    final daily = _totalEnergyKwh / days;
+    _currentBill = EnergyBill(totalKwh: _totalEnergyKwh, ratePerKwh: _ratePerKwh, totalCost: cost, periodStart: _periodStart!, periodEnd: now, daysInPeriod: days, averageDailyKwh: daily, projectedMonthlyKwh: daily * 30, projectedMonthlyCost: daily * 30 * _ratePerKwh);
     _billStreamController.add(_currentBill!);
   }
 
-  /// Load historical energy data
   Future<void> _loadHistoricalData() async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final snapshot = await FirebaseDatabase.instance
-          .ref()
-          .child('users')
-          .child(user.uid)
-          .child('energy_history')
-          .child('total_kwh')
-          .get();
-
-      if (snapshot.exists && snapshot.value != null) {
-        _totalEnergyKwh = (snapshot.value as num).toDouble();
-        debugPrint('📊 Loaded historical energy: $_totalEnergyKwh kWh');
-      }
-    } catch (e) {
-      debugPrint('❌ Error loading historical data: $e');
-    }
+      final headers = await _authHeaders();
+      if (headers == null) return;
+      final response = await http.get(Uri.parse('${ConfigService().backendUrl}/energy/history?limit=1'), headers: headers).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return;
+      final rows = jsonDecode(response.body) as List;
+      if (rows.isEmpty) return;
+      _latestReading = EnergyReading.fromJson(Map<String, dynamic>.from(rows.first as Map));
+      _totalEnergyKwh = _latestReading!.energy;
+      _readingStreamController.add(_latestReading!);
+    } catch (e) { debugPrint('Energy history load failed: $e'); }
   }
 
-  /// Save energy data to Firebase
   Future<void> saveEnergyReading(EnergyReading reading) async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      // Save current reading
-      await FirebaseDatabase.instance
-          .ref()
-          .child('users')
-          .child(user.uid)
-          .child('sensors')
-          .child('energy')
-          .set(reading.toJson());
-
-      // Save to history
-      final historyRef = FirebaseDatabase.instance
-          .ref()
-          .child('users')
-          .child(user.uid)
-          .child('energy_history')
-          .child('readings')
-          .push();
-
-      await historyRef.set(reading.toJson());
-
-      // Update total
-      await FirebaseDatabase.instance
-          .ref()
-          .child('users')
-          .child(user.uid)
-          .child('energy_history')
-          .child('total_kwh')
-          .set(_totalEnergyKwh);
-
-    } catch (e) {
-      debugPrint('❌ Error saving energy reading: $e');
-    }
+      final headers = await _authHeaders();
+      if (headers == null) return;
+      final response = await http.post(Uri.parse('${ConfigService().backendUrl}/energy/readings'), headers: headers, body: jsonEncode(reading.toJson())).timeout(const Duration(seconds: 8));
+      if (response.statusCode < 200 || response.statusCode >= 300) return;
+      _latestReading = reading;
+      _totalEnergyKwh = reading.energy;
+      _readingStreamController.add(reading);
+      _calculateBill();
+    } catch (e) { debugPrint('Energy save failed: $e'); }
   }
 
-  /// Get energy history for a date range
-  Future<List<EnergyReading>> getEnergyHistory({
-    DateTime? startDate,
-    DateTime? endDate,
-    int limit = 100,
-  }) async {
+  Future<List<EnergyReading>> getEnergyHistory({DateTime? startDate, DateTime? endDate, int limit = 100}) async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return [];
-
-      final snapshot = await FirebaseDatabase.instance
-          .ref()
-          .child('users')
-          .child(user.uid)
-          .child('energy_history')
-          .child('readings')
-          .orderByChild('timestamp')
-          .limitToLast(limit)
-          .get();
-
-      if (!snapshot.exists || snapshot.value == null) return [];
-
-      final data = Map<String, dynamic>.from(snapshot.value as Map);
-      final readings = <EnergyReading>[];
-
-      data.forEach((key, value) {
-        try {
-          readings.add(EnergyReading.fromJson(Map<String, dynamic>.from(value)));
-        } catch (e) {
-          debugPrint('⚠️ Error parsing reading: $e');
-        }
-      });
-
-      // Sort by timestamp
-      readings.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-
-      return readings;
-    } catch (e) {
-      debugPrint('❌ Error getting energy history: $e');
-      return [];
-    }
+      final headers = await _authHeaders();
+      if (headers == null) return [];
+      final query = <String, String>{'limit': '$limit'};
+      if (startDate != null) query['start_time'] = startDate.toIso8601String();
+      if (endDate != null) query['end_time'] = endDate.toIso8601String();
+      final uri = Uri.parse('${ConfigService().backendUrl}/energy/history').replace(queryParameters: query);
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return [];
+      return (jsonDecode(response.body) as List).map((r) => EnergyReading.fromJson(Map<String, dynamic>.from(r as Map))).toList();
+    } catch (e) { debugPrint('Energy history query failed: $e'); return []; }
   }
 
-  /// Set electricity rate
-  void setRate(double ratePerKwh) {
-    _ratePerKwh = ratePerKwh;
-    _calculateBill();
-  }
-
-  /// Reset billing period
-  void resetBillingPeriod() {
-    _periodStart = DateTime.now();
-    _totalEnergyKwh = 0.0;
-    _calculateBill();
-  }
-
-  /// Dispose resources
-  void dispose() {
-    _sensorSubscription?.cancel();
-    _billCalculationTimer?.cancel();
-    _readingStreamController.close();
-    _billStreamController.close();
-  }
+  void setRate(double ratePerKwh) { _ratePerKwh = ratePerKwh; _calculateBill(); }
+  void resetBillingPeriod() { _periodStart = DateTime.now(); _totalEnergyKwh = 0; _calculateBill(); }
+  void dispose() { _sensorPollTimer?.cancel(); _billCalculationTimer?.cancel(); _readingStreamController.close(); _billStreamController.close(); }
 }
-

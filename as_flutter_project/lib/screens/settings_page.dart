@@ -35,25 +35,28 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadProfileAndPreferences() async {
     try {
-      // Get profile from backend or Firebase Auth
+      // Load the signed-in account profile from the backend.
       final profile = await _authService.getUserProfile();
       final prefs = await _authService.getUserPreferences();
+      final thresholds = await _authService.getSensorThresholds();
+      if (thresholds != null) {
+        await ConfigService().setVoltageMin((thresholds['voltage_min'] as num).toDouble());
+        await ConfigService().setVoltageMax((thresholds['voltage_max'] as num).toDouble());
+        await ConfigService().setAmperageMax((thresholds['amperage_max'] as num).toDouble());
+      }
       final backendUrl = ConfigService().backendUrl;
 
-      // Also try to get from Firebase Auth directly
-      final firebaseUser = await _authService.getCurrentFirebaseUser();
+      final backendUser = await _authService.getCurrentUserProfile();
 
       if (mounted) {
         setState(() {
-          // Prefer Firebase Auth data, fallback to profile from backend
-          if (firebaseUser != null) {
+          if (backendUser != null) {
             _profile = {
-              'name': firebaseUser['displayName'] ?? profile?['name'] ?? 'User',
-              'email': firebaseUser['email'] ?? profile?['email'] ?? '',
-              'provider': firebaseUser['provider'] ?? 'email',
+              'name': backendUser['name'] ?? profile?['name'] ?? 'User',
+              'email': backendUser['email'] ?? profile?['email'] ?? '',
+              'provider': backendUser['provider'] ?? profile?['provider'] ?? 'email',
             };
-            _isOAuthUser = firebaseUser['provider'] == 'google.com' ||
-                firebaseUser['provider'] == 'google';
+            _isOAuthUser = backendUser['provider'] == 'google';
           } else if (profile != null) {
             _profile = profile;
             _isOAuthUser = profile['provider'] == 'google' ||
@@ -275,10 +278,26 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     if (result != null) {
-      await ConfigService().setVoltageMin(result['min']!);
-      await ConfigService().setVoltageMax(result['max']!);
+      final min = result['min']!;
+      final max = result['max']!;
+      if (min <= 0 || max <= min) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Maximum voltage must be greater than a positive minimum.')));
+        return;
+      }
+      if (mounted) setState(() => _isSavingThresholds = true);
+      final saved = await _authService.updateSensorThresholds(
+        voltageMin: min, voltageMax: max, amperageMax: ConfigService().amperageMax);
+      if (saved == null) {
+        if (mounted) setState(() => _isSavingThresholds = false);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save thresholds to the backend.')));
+        return;
+      }
+      await ConfigService().setVoltageMin(min);
+      await ConfigService().setVoltageMax(max);
       if (mounted) {
-        setState(() {});
+        setState(() => _isSavingThresholds = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Voltage thresholds updated')),
         );
@@ -319,7 +338,22 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     if (result != null) {
+      if (result <= 0) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Amperage threshold must be greater than zero.')));
+        return;
+      }
       if (mounted) setState(() => _isSavingThresholds = true);
+      final saved = await _authService.updateSensorThresholds(
+        voltageMin: ConfigService().voltageMin,
+        voltageMax: ConfigService().voltageMax,
+        amperageMax: result);
+      if (saved == null) {
+        if (mounted) setState(() => _isSavingThresholds = false);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save thresholds to the backend.')));
+        return;
+      }
       await ConfigService().setAmperageMax(result);
       if (mounted) {
         setState(() => _isSavingThresholds = false);

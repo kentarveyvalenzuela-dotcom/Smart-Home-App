@@ -1,12 +1,13 @@
-// filepath: c:\Users\Ivy\OneDrive\Desktop\New folder\brix\as_flutter_project\lib\services\notification_service.dart
-import 'dart:convert';
 import 'dart:async';
-import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:firebase_database/firebase_database.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
 
-/// Types of activity notifications
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'auth_service.dart';
+import 'config_service.dart';
+
 enum NotificationType {
   googleSignIn,
   emailSignIn,
@@ -18,7 +19,6 @@ enum NotificationType {
   logout,
 }
 
-/// Activity Notification Model
 class ActivityNotification {
   final String id;
   final NotificationType type;
@@ -38,49 +38,33 @@ class ActivityNotification {
     this.metadata,
   });
 
-  factory ActivityNotification.fromJson(Map<String, dynamic> json) {
-    return ActivityNotification(
-      id: json['id'] ?? '',
-      type: NotificationType.values.firstWhere(
-        (e) => e.name == json['type'],
-        orElse: () => NotificationType.deviceToggle,
-      ),
-      title: json['title'] ?? '',
-      message: json['message'] ?? '',
-      timestamp: json['timestamp'] != null
-          ? DateTime.parse(json['timestamp'])
-          : DateTime.now(),
-      isRead: json['isRead'] ?? false,
-      metadata: json['metadata'] != null
-          ? Map<String, dynamic>.from(json['metadata'])
-          : null,
-    );
-  }
+  factory ActivityNotification.fromJson(Map<String, dynamic> json) => ActivityNotification(
+        id: json['id']?.toString() ?? '',
+        type: NotificationType.values.firstWhere((e) => e.name == json['type'], orElse: () => NotificationType.deviceToggle),
+        title: json['title']?.toString() ?? '',
+        message: json['message']?.toString() ?? '',
+        timestamp: DateTime.tryParse((json['timestamp'] ?? json['created_at'] ?? '').toString()) ?? DateTime.now(),
+        isRead: json['isRead'] == true || json['is_read'] == true,
+        metadata: json['metadata'] is Map ? Map<String, dynamic>.from(json['metadata']) : null,
+      );
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'type': type.name,
-    'title': title,
-    'message': message,
-    'timestamp': timestamp.toIso8601String(),
-    'isRead': isRead,
-    'metadata': metadata,
-  };
+        'id': id,
+        'type': type.name,
+        'title': title,
+        'message': message,
+        'timestamp': timestamp.toIso8601String(),
+        'isRead': isRead,
+        'metadata': metadata,
+      };
 
-  ActivityNotification copyWith({bool? isRead}) {
-    return ActivityNotification(
-      id: id,
-      type: type,
-      title: title,
-      message: message,
-      timestamp: timestamp,
-      isRead: isRead ?? this.isRead,
-      metadata: metadata,
-    );
-  }
+  ActivityNotification copyWith({bool? isRead}) => ActivityNotification(
+        id: id, type: type, title: title, message: message, timestamp: timestamp,
+        isRead: isRead ?? this.isRead, metadata: metadata,
+      );
 }
 
-/// Notification Service - Manages local activity notifications with Firebase sync
+/// Notifications are stored by the PostgreSQL API and cached locally for offline use.
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
@@ -88,425 +72,153 @@ class NotificationService {
 
   final List<ActivityNotification> _notifications = [];
   final _notificationStreamController = StreamController<List<ActivityNotification>>.broadcast();
-
-  StreamSubscription<DatabaseEvent>? _firebaseSubscription;
+  Timer? _pollTimer;
   bool _initialized = false;
-  String? _currentUserId;
 
   Stream<List<ActivityNotification>> get notificationStream => _notificationStreamController.stream;
   List<ActivityNotification> get notifications => List.unmodifiable(_notifications);
   int get unreadCount => _notifications.where((n) => !n.isRead).length;
 
-  /// Get Firebase reference for user notifications
-  DatabaseReference? _getUserNotificationsRef() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return null;
-    return FirebaseDatabase.instance.ref().child('users').child(user.uid).child('notifications');
+  Future<Map<String, String>> _headers() async {
+    final headers = await AuthService().getAuthHeaders();
+    headers['Content-Type'] = 'application/json';
+    return headers;
   }
 
-  /// Initialize and load notifications from storage/Firebase
   Future<void> initialize() async {
     if (_initialized) return;
-
-    // Listen to auth state changes
-    FirebaseAuth.instance.authStateChanges().listen((user) {
-      if (user != null && user.uid != _currentUserId) {
-        _currentUserId = user.uid;
-        _setupFirebaseListener();
-      } else if (user == null) {
-        _currentUserId = null;
-        _firebaseSubscription?.cancel();
-        _notifications.clear();
-        _notificationStreamController.add(_notifications);
-      }
-    });
-
-    // Load from local storage first (for offline support)
     await _loadFromLocalStorage();
-
-    // Then sync with Firebase if user is logged in
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      _currentUserId = user.uid;
-      await _syncFromFirebase();
-      _setupFirebaseListener();
-    }
-
+    await _syncFromBackend();
+    _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) => _syncFromBackend());
     _initialized = true;
-    debugPrint('✅ NotificationService initialized with ${_notifications.length} notifications');
   }
 
-  /// Setup real-time Firebase listener
-  void _setupFirebaseListener() {
-    _firebaseSubscription?.cancel();
-
-    final ref = _getUserNotificationsRef();
-    if (ref == null) return;
-
-    _firebaseSubscription = ref.orderByChild('timestamp').onValue.listen((event) {
-      if (event.snapshot.value != null) {
-        try {
-          final data = Map<String, dynamic>.from(event.snapshot.value as Map);
-          _notifications.clear();
-
-          data.forEach((key, value) {
-            try {
-              final notifData = Map<String, dynamic>.from(value as Map);
-              notifData['id'] = key;
-              _notifications.add(ActivityNotification.fromJson(notifData));
-            } catch (e) {
-              debugPrint('⚠️ Error parsing notification $key: $e');
-            }
-          });
-
-          // Sort by timestamp descending (newest first)
-          _notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-          // Also save to local storage for offline access
-          _saveToLocalStorage();
-
-          _notificationStreamController.add(_notifications);
-          debugPrint('🔄 Firebase notifications synced: ${_notifications.length} items');
-        } catch (e) {
-          debugPrint('❌ Error processing Firebase notifications: $e');
-        }
-      }
-    }, onError: (error) {
-      debugPrint('❌ Firebase notification listener error: $error');
-    });
-  }
-
-  /// Sync notifications from Firebase
-  Future<void> _syncFromFirebase() async {
+  Future<void> _syncFromBackend() async {
     try {
-      final ref = _getUserNotificationsRef();
-      if (ref == null) return;
-
-      final snapshot = await ref.orderByChild('timestamp').limitToLast(100).get();
-
-      if (snapshot.exists && snapshot.value != null) {
-        final data = Map<String, dynamic>.from(snapshot.value as Map);
-        _notifications.clear();
-
-        data.forEach((key, value) {
-          try {
-            final notifData = Map<String, dynamic>.from(value as Map);
-            notifData['id'] = key;
-            _notifications.add(ActivityNotification.fromJson(notifData));
-          } catch (e) {
-            debugPrint('⚠️ Error parsing notification $key: $e');
-          }
-        });
-
-        // Sort by timestamp descending
-        _notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-        // Save to local storage
-        await _saveToLocalStorage();
-
-        _notificationStreamController.add(_notifications);
-        debugPrint('✅ Synced ${_notifications.length} notifications from Firebase');
-      }
-    } catch (e) {
-      debugPrint('❌ Error syncing from Firebase: $e');
-    }
-  }
-
-  /// Add a Google Sign-In notification
-  Future<void> addGoogleSignInNotification(String email) async {
-    await _addNotification(
-      type: NotificationType.googleSignIn,
-      title: 'Google Sign-In',
-      message: 'Successfully signed in with Google account: $email',
-      metadata: {'email': email},
-    );
-  }
-
-  /// Add an Email Sign-In notification
-  Future<void> addEmailSignInNotification(String email) async {
-    await _addNotification(
-      type: NotificationType.emailSignIn,
-      title: 'Email Sign-In',
-      message: 'Successfully signed in with email: $email',
-      metadata: {'email': email},
-    );
-  }
-
-  /// Add a Password Change notification
-  Future<void> addPasswordChangeNotification() async {
-    await _addNotification(
-      type: NotificationType.passwordChange,
-      title: 'Password Changed',
-      message: 'Your password has been successfully changed',
-    );
-  }
-
-  /// Add a Device Toggle notification
-  Future<void> addDeviceToggleNotification({
-    required String deviceName,
-    required String action,
-    String? location,
-  }) async {
-    final actionText = action.toUpperCase() == 'ON' ? 'turned ON' : 'turned OFF';
-    final locationText = location?.isNotEmpty == true ? ' in $location' : '';
-
-    await _addNotification(
-      type: NotificationType.deviceToggle,
-      title: 'Device Control',
-      message: 'Your $deviceName$locationText has been $actionText',
-      metadata: {
-        'deviceName': deviceName,
-        'action': action,
-        'location': location,
-      },
-    );
-  }
-
-  /// Add a Device Add notification
-  Future<void> addDeviceAddNotification(String deviceName) async {
-    await _addNotification(
-      type: NotificationType.deviceAdd,
-      title: 'Device Added',
-      message: 'New device "$deviceName" has been added to your smart home',
-      metadata: {'deviceName': deviceName},
-    );
-  }
-
-  /// Add a Device Delete notification
-  Future<void> addDeviceDeleteNotification(String deviceName) async {
-    await _addNotification(
-      type: NotificationType.deviceDelete,
-      title: 'Device Removed',
-      message: 'Device "$deviceName" has been removed from your smart home',
-      metadata: {'deviceName': deviceName},
-    );
-  }
-
-  /// Add a Profile Update notification
-  Future<void> addProfileUpdateNotification() async {
-    await _addNotification(
-      type: NotificationType.profileUpdate,
-      title: 'Profile Updated',
-      message: 'Your profile information has been updated',
-    );
-  }
-
-  /// Add a Logout notification
-  Future<void> addLogoutNotification() async {
-    await _addNotification(
-      type: NotificationType.logout,
-      title: 'Signed Out',
-      message: 'You have been signed out of your account',
-    );
-  }
-
-  /// Internal method to add notification
-  Future<void> _addNotification({
-    required NotificationType type,
-    required String title,
-    required String message,
-    Map<String, dynamic>? metadata,
-  }) async {
-    final id = DateTime.now().millisecondsSinceEpoch.toString();
-    final notification = ActivityNotification(
-      id: id,
-      type: type,
-      title: title,
-      message: message,
-      timestamp: DateTime.now(),
-      metadata: metadata,
-    );
-
-    // Add to local list
-    _notifications.insert(0, notification);
-
-    // Keep only last 100 notifications locally
-    if (_notifications.length > 100) {
-      _notifications.removeRange(100, _notifications.length);
-    }
-
-    // Save to Firebase if user is logged in
-    await _saveToFirebase(notification);
-
-    // Save to local storage
-    await _saveToLocalStorage();
-
-    _notificationStreamController.add(_notifications);
-
-    debugPrint('📢 Notification added: $title - $message');
-  }
-
-  /// Save notification to Firebase
-  Future<void> _saveToFirebase(ActivityNotification notification) async {
-    try {
-      final ref = _getUserNotificationsRef();
-      if (ref == null) {
-        debugPrint('⚠️ User not logged in, notification saved locally only');
-        return;
-      }
-
-      await ref.child(notification.id).set(notification.toJson());
-      debugPrint('☁️ Notification saved to Firebase: ${notification.id}');
-
-      // Clean up old notifications in Firebase (keep last 100)
-      await _cleanupOldFirebaseNotifications();
-    } catch (e) {
-      debugPrint('❌ Error saving notification to Firebase: $e');
-    }
-  }
-
-  /// Clean up old notifications in Firebase
-  Future<void> _cleanupOldFirebaseNotifications() async {
-    try {
-      final ref = _getUserNotificationsRef();
-      if (ref == null) return;
-
-      final snapshot = await ref.orderByChild('timestamp').get();
-      if (snapshot.exists && snapshot.value != null) {
-        final data = Map<String, dynamic>.from(snapshot.value as Map);
-        if (data.length > 100) {
-          // Sort by timestamp and get oldest ones to delete
-          final entries = data.entries.toList();
-          entries.sort((a, b) {
-            final aTime = DateTime.tryParse(a.value['timestamp'] ?? '') ?? DateTime.now();
-            final bTime = DateTime.tryParse(b.value['timestamp'] ?? '') ?? DateTime.now();
-            return aTime.compareTo(bTime);
-          });
-
-          // Delete oldest entries beyond 100
-          final toDelete = entries.take(data.length - 100);
-          for (final entry in toDelete) {
-            await ref.child(entry.key).remove();
-          }
-          debugPrint('🗑️ Cleaned up ${toDelete.length} old notifications from Firebase');
-        }
-      }
-    } catch (e) {
-      debugPrint('⚠️ Error cleaning up Firebase notifications: $e');
-    }
-  }
-
-  /// Mark notification as read
-  Future<void> markAsRead(String notificationId) async {
-    final index = _notifications.indexWhere((n) => n.id == notificationId);
-    if (index != -1) {
-      _notifications[index] = _notifications[index].copyWith(isRead: true);
-
-      // Update in Firebase
-      try {
-        final ref = _getUserNotificationsRef();
-        if (ref != null) {
-          await ref.child(notificationId).update({'isRead': true});
-        }
-      } catch (e) {
-        debugPrint('⚠️ Error updating read status in Firebase: $e');
-      }
-
+      final headers = await _headers();
+      if (!headers.containsKey('Authorization')) return;
+      final response = await http.get(Uri.parse('${ConfigService().backendUrl}/notifications?limit=100'), headers: headers).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return;
+      final items = jsonDecode(response.body) as List;
+      _notifications
+        ..clear()
+        ..addAll(items.map((item) => ActivityNotification.fromJson(Map<String, dynamic>.from(item as Map))));
       await _saveToLocalStorage();
-      _notificationStreamController.add(_notifications);
+      _notificationStreamController.add(List.unmodifiable(_notifications));
+    } catch (e) {
+      debugPrint('Notification sync error: $e');
     }
   }
 
-  /// Mark all notifications as read
-  Future<void> markAllAsRead() async {
-    for (int i = 0; i < _notifications.length; i++) {
-      _notifications[i] = _notifications[i].copyWith(isRead: true);
-    }
+  Future<void> addGoogleSignInNotification(String email) => _addNotification(type: NotificationType.googleSignIn, title: 'Google Sign-In', message: 'Successfully signed in with Google account: $email', metadata: {'email': email});
+  Future<void> addEmailSignInNotification(String email) => _addNotification(type: NotificationType.emailSignIn, title: 'Email Sign-In', message: 'Successfully signed in with email: $email', metadata: {'email': email});
+  Future<void> addPasswordChangeNotification() => _addNotification(type: NotificationType.passwordChange, title: 'Password Changed', message: 'Your password has been successfully changed');
+  Future<void> addDeviceAddNotification(String deviceName) => _addNotification(type: NotificationType.deviceAdd, title: 'Device Added', message: 'New device "$deviceName" has been added to your smart home', metadata: {'deviceName': deviceName});
+  Future<void> addDeviceDeleteNotification(String deviceName) => _addNotification(type: NotificationType.deviceDelete, title: 'Device Removed', message: 'Device "$deviceName" has been removed from your smart home', metadata: {'deviceName': deviceName});
+  Future<void> addProfileUpdateNotification() => _addNotification(type: NotificationType.profileUpdate, title: 'Profile Updated', message: 'Your profile information has been updated');
+  Future<void> addLogoutNotification() => _addNotification(type: NotificationType.logout, title: 'Signed Out', message: 'You have been signed out of your account');
 
-    // Update in Firebase
+  Future<void> addDeviceToggleNotification({required String deviceName, required String action, String? location}) {
+    final locationText = location?.isNotEmpty == true ? ' in $location' : '';
+    final actionText = action.toUpperCase() == 'ON' ? 'turned ON' : 'turned OFF';
+    return _addNotification(type: NotificationType.deviceToggle, title: 'Device Control', message: 'Your $deviceName$locationText has been $actionText', metadata: {'deviceName': deviceName, 'action': action, 'location': location});
+  }
+
+  Future<void> _addNotification({required NotificationType type, required String title, required String message, Map<String, dynamic>? metadata}) async {
+    final notification = ActivityNotification(id: DateTime.now().millisecondsSinceEpoch.toString(), type: type, title: title, message: message, timestamp: DateTime.now(), metadata: metadata);
+    _notifications.insert(0, notification);
+    if (_notifications.length > 100) _notifications.removeRange(100, _notifications.length);
+    await _saveToLocalStorage();
+    _notificationStreamController.add(List.unmodifiable(_notifications));
     try {
-      final ref = _getUserNotificationsRef();
-      if (ref != null) {
-        final updates = <String, dynamic>{};
-        for (final n in _notifications) {
-          updates['${n.id}/isRead'] = true;
+      final headers = await _headers();
+      if (headers.containsKey('Authorization')) {
+        final response = await http.post(Uri.parse('${ConfigService().backendUrl}/notifications'), headers: headers, body: jsonEncode({'type': type.name, 'title': title, 'message': message, 'metadata': metadata ?? {}})).timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200) {
+          final saved = ActivityNotification.fromJson(Map<String, dynamic>.from(jsonDecode(response.body)));
+          final index = _notifications.indexWhere((n) => n.id == notification.id);
+          if (index >= 0) _notifications[index] = saved;
+          await _saveToLocalStorage();
+          _notificationStreamController.add(List.unmodifiable(_notifications));
         }
-        await ref.update(updates);
       }
-    } catch (e) {
-      debugPrint('⚠️ Error marking all as read in Firebase: $e');
-    }
-
-    await _saveToLocalStorage();
-    _notificationStreamController.add(_notifications);
+    } catch (e) { debugPrint('Notification save error: $e'); }
   }
 
-  /// Delete a notification
-  Future<void> deleteNotification(String notificationId) async {
-    _notifications.removeWhere((n) => n.id == notificationId);
-
-    // Delete from Firebase
-    try {
-      final ref = _getUserNotificationsRef();
-      if (ref != null) {
-        await ref.child(notificationId).remove();
-      }
-    } catch (e) {
-      debugPrint('⚠️ Error deleting from Firebase: $e');
-    }
-
-    await _saveToLocalStorage();
-    _notificationStreamController.add(_notifications);
+  Future<void> markAsRead(String id) async {
+    final i = _notifications.indexWhere((n) => n.id == id);
+    if (i < 0) return;
+    _notifications[i] = _notifications[i].copyWith(isRead: true);
+    await _request('PATCH', '/notifications/$id/read');
+    await _publishLocal();
   }
 
-  /// Clear all notifications
+  Future<void> markAllAsRead() async {
+    for (var i = 0; i < _notifications.length; i++) { _notifications[i] = _notifications[i].copyWith(isRead: true); }
+    await _request('POST', '/notifications/read-all');
+    await _publishLocal();
+  }
+
+  Future<void> deleteNotification(String id) async {
+    _notifications.removeWhere((n) => n.id == id);
+    await _request('DELETE', '/notifications/$id');
+    await _publishLocal();
+  }
+
   Future<void> clearAll() async {
     _notifications.clear();
+    await _request('DELETE', '/notifications');
+    await _publishLocal();
+  }
 
-    // Clear from Firebase
+  Future<void> _request(String method, String path) async {
     try {
-      final ref = _getUserNotificationsRef();
-      if (ref != null) {
-        await ref.remove();
-      }
-    } catch (e) {
-      debugPrint('⚠️ Error clearing Firebase notifications: $e');
-    }
+      final headers = await _headers();
+      if (!headers.containsKey('Authorization')) return;
+      final uri = Uri.parse('${ConfigService().backendUrl}$path');
+      if (method == 'PATCH') await http.patch(uri, headers: headers).timeout(const Duration(seconds: 8));
+      if (method == 'POST') await http.post(uri, headers: headers).timeout(const Duration(seconds: 8));
+      if (method == 'DELETE') await http.delete(uri, headers: headers).timeout(const Duration(seconds: 8));
+    } catch (e) { debugPrint('Notification update error: $e'); }
+  }
 
+  Future<void> _publishLocal() async {
     await _saveToLocalStorage();
-    _notificationStreamController.add(_notifications);
+    _notificationStreamController.add(List.unmodifiable(_notifications));
   }
 
-  /// Save notifications to local storage (for offline support)
   Future<void> _saveToLocalStorage() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final jsonList = _notifications.map((n) => jsonEncode(n.toJson())).toList();
-      await prefs.setStringList('activity_notifications', jsonList);
-    } catch (e) {
-      debugPrint('❌ Error saving notifications locally: $e');
-    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(await _cacheKey(), _notifications.map((n) => jsonEncode(n.toJson())).toList());
   }
 
-  /// Load notifications from local storage
   Future<void> _loadFromLocalStorage() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final jsonList = prefs.getStringList('activity_notifications') ?? [];
+    final prefs = await SharedPreferences.getInstance();
+    final rows = prefs.getStringList(await _cacheKey()) ?? [];
+    _notifications
+      ..clear()
+      ..addAll(rows.map((row) => ActivityNotification.fromJson(Map<String, dynamic>.from(jsonDecode(row)))));
+    _notificationStreamController.add(List.unmodifiable(_notifications));
+  }
 
-      _notifications.clear();
-      for (final jsonStr in jsonList) {
-        try {
-          final json = jsonDecode(jsonStr);
-          _notifications.add(ActivityNotification.fromJson(json));
-        } catch (e) {
-          debugPrint('⚠️ Error parsing local notification: $e');
+  Future<String> _cacheKey() async {
+    final auth = AuthService();
+    var userId = auth.currentUserId;
+    if (userId == null) {
+      try {
+        final token = await auth.getAccessToken();
+        final parts = token?.split('.') ?? const <String>[];
+        if (parts.length == 3) {
+          final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+          userId = payload['sub']?.toString();
         }
-      }
-
-      // Sort by timestamp descending
-      _notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-      _notificationStreamController.add(_notifications);
-      debugPrint('📱 Loaded ${_notifications.length} notifications from local storage');
-    } catch (e) {
-      debugPrint('❌ Error loading local notifications: $e');
+      } catch (_) {}
     }
+    return 'activity_notifications_${userId ?? 'anonymous'}';
   }
 
   void dispose() {
-    _firebaseSubscription?.cancel();
+    _pollTimer?.cancel();
     _notificationStreamController.close();
   }
 }
-

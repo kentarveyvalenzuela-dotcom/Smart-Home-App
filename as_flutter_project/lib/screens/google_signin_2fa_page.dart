@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../services/google_signin_2fa_service.dart';
 
 class GoogleSignIn2FAPage extends StatefulWidget {
-  const GoogleSignIn2FAPage({super.key});
+  final String? email;
+  const GoogleSignIn2FAPage({super.key, this.email});
 
   @override
   State<GoogleSignIn2FAPage> createState() => _GoogleSignIn2FAPageState();
@@ -17,6 +18,15 @@ class _GoogleSignIn2FAPageState extends State<GoogleSignIn2FAPage> {
   String? _userEmail;
   String _message = '';
   bool _isError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.email != null && widget.email!.isNotEmpty) {
+      _userEmail = widget.email;
+      _show2FAInput = true;
+    }
+  }
 
   @override
   void dispose() {

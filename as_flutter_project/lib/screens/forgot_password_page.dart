@@ -12,6 +12,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final _emailController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _resetTokenController = TextEditingController();
   bool isLoading = false;
   bool emailSent = false;
   bool settingNewPassword = false;
@@ -58,11 +59,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           isError: false,
         );
 
-        // Auto-redirect after 3 seconds
-        await Future.delayed(const Duration(seconds: 3));
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
       } else {
         _showSnackBar(
           response?['error'] ?? 'Failed to send reset email. Please try again.',
@@ -81,6 +77,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     _emailController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
+    _resetTokenController.dispose();
     super.dispose();
   }
 
@@ -104,8 +101,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
     try {
       // Call backend to confirm password reset
-      final response = await _authService.confirmPasswordReset(
-        _emailController.text,
+      final response = await _authService.resetPassword(
+        _resetTokenController.text.trim(),
         _newPasswordController.text,
       );
 
@@ -320,7 +317,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
         // Instructions
         Text(
-          'We\'ve sent a password reset link to:\n${_emailController.text}',
+          'We\'ve sent a reset token to:\n${_emailController.text}',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Colors.white70,
@@ -439,6 +436,25 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
               ),
         ),
         const SizedBox(height: 40),
+
+        // Reset token from the email
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(15),
+          ),
+          child: TextField(
+            controller: _resetTokenController,
+            decoration: const InputDecoration(
+              hintText: 'Reset token from your email',
+              prefixIcon: Icon(Icons.verified_user, color: Colors.grey),
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            ),
+            enabled: !isLoading,
+          ),
+        ),
+        const SizedBox(height: 16),
 
         // New Password Input
         Container(

@@ -1,7 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 
-/// Simple runtime configuration for endpoints and toggles.
+/// Runtime configuration for API endpoints and app preferences.
 class ConfigService {
   static final ConfigService _instance = ConfigService._internal();
   factory ConfigService() => _instance;
@@ -13,7 +13,6 @@ class ConfigService {
   static const _amperageMaxKey = 'threshold_amperage_max';
   static const _themeModeKey = 'theme_mode';
 
-  // Defaults
   double _voltageMin = 200;
   double _voltageMax = 240;
   double _amperageMax = 30;
@@ -23,15 +22,11 @@ class ConfigService {
 
   static String _normalizeBackendUrl(String rawUrl) {
     final trimmed = rawUrl.trim();
-    if (trimmed.isEmpty) {
-      return 'http://localhost:8000';
-    }
-
-    String normalized = trimmed;
+    if (trimmed.isEmpty) return 'http://localhost:8000';
+    var normalized = trimmed;
     while (normalized.endsWith('/')) {
       normalized = normalized.substring(0, normalized.length - 1);
     }
-
     return normalized;
   }
 
@@ -40,26 +35,15 @@ class ConfigService {
     return uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
   }
 
-  /// Local development defaults to the FastAPI server running on port 8000.
-  /// Heroku remains available as an override for production deployments.
   static String _getDefaultBackendUrl() {
     const envUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
-    if (envUrl.isNotEmpty) {
-      debugPrint('✅ Using BACKEND_URL from environment: $envUrl');
-      return envUrl;
-    }
-
-    const localUrl = 'http://localhost:8000';
+    if (envUrl.isNotEmpty) return envUrl;
+    final localUrl = defaultTargetPlatform == TargetPlatform.android
+        ? 'http://10.0.2.2:8000'
+        : 'http://localhost:8000';
     const productionUrl =
         'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-
-    if (kDebugMode || kIsWeb) {
-      debugPrint('🧪 Using local backend for development: $localUrl');
-      return localUrl;
-    }
-
-    debugPrint('🚀 Using production backend: $productionUrl');
-    return productionUrl;
+    return (kDebugMode || kIsWeb) ? localUrl : productionUrl;
   }
 
   String get backendUrl => _backendUrl;
@@ -72,16 +56,30 @@ class ConfigService {
     if (_initialized) return;
     try {
       final prefs = await SharedPreferences.getInstance();
-      _backendUrl =
-          _normalizeBackendUrl(prefs.getString(_backendKey) ?? _backendUrl);
+      final savedBackendUrl = prefs.getString(_backendKey);
+      // Migrate the old localhost default so Android emulators reach the host.
+      final savedUrlIsOldLocalDefault =
+          savedBackendUrl == 'http://localhost:8000' ||
+              savedBackendUrl == 'http://127.0.0.1:8000';
+      _backendUrl = _normalizeBackendUrl(
+        savedBackendUrl == null ||
+                (defaultTargetPlatform == TargetPlatform.android &&
+                    savedUrlIsOldLocalDefault)
+            ? _getDefaultBackendUrl()
+            : savedBackendUrl,
+      );
+      if (savedUrlIsOldLocalDefault &&
+          defaultTargetPlatform == TargetPlatform.android) {
+        await prefs.setString(_backendKey, _backendUrl);
+      }
       _voltageMin = prefs.getDouble(_voltageMinKey) ?? _voltageMin;
       _voltageMax = prefs.getDouble(_voltageMaxKey) ?? _voltageMax;
       _amperageMax = prefs.getDouble(_amperageMaxKey) ?? _amperageMax;
       _themeMode = prefs.getString(_themeModeKey) ?? _themeMode;
       _initialized = true;
-      debugPrint('✅ ConfigService initialized. Backend: $_backendUrl');
+      debugPrint('ConfigService initialized. Backend: $_backendUrl');
     } catch (e) {
-      debugPrint('⚠️ ConfigService init failed, using defaults. Error: $e');
+      debugPrint('ConfigService init failed, using defaults: $e');
     }
   }
 
@@ -89,7 +87,6 @@ class ConfigService {
     _backendUrl = _normalizeBackendUrl(url);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_backendKey, _backendUrl);
-    debugPrint('🔧 Backend URL updated to: $_backendUrl');
   }
 
   Future<void> setVoltageMin(double value) async {
@@ -116,33 +113,24 @@ class ConfigService {
     await prefs.setString(_themeModeKey, mode);
   }
 
-  /// 🔧 Helper: Switch to Localhost
-  Future<void> useLocalBackend() async {
-    await setBackendUrl('http://localhost:8000');
-  }
+  Future<void> useLocalBackend() => setBackendUrl(
+        defaultTargetPlatform == TargetPlatform.android
+            ? 'http://10.0.2.2:8000'
+            : 'http://localhost:8000',
+      );
 
-  /// 🔧 Helper: Switch to Heroku Production
-  Future<void> useHerokuBackend() async {
-    await setBackendUrl(
-        'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com');
-  }
+  Future<void> useHerokuBackend() => setBackendUrl(
+        'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com',
+      );
 
-  /// 🔐 IMPORTANT: Google OAuth ALWAYS uses Heroku (requires HTTPS!)
-  /// Localhost doesn't work because Google OAuth requires HTTPS + production domain
-  String getGoogleOAuthUrl() {
-    // Google OAuth MUST use HTTPS + production domain
-    // Localhost won't work even if it's the default backend
-    return 'https://as-flutter-backend-prod-8ea99290c3d0.herokuapp.com';
-  }
+  /// Verify Google sign-in tokens through the app's configured backend.
+  String getGoogleOAuthUrl() => backendUrl;
 
-  /// 📊 Helper: Get Current Configuration Info
   String getConfigInfo() {
-    String platform = kIsWeb ? 'Web' : 'Mobile/Desktop';
-    String mode = kDebugMode ? 'Debug' : 'Release';
+    final platform = kIsWeb ? 'Web' : 'Mobile/Desktop';
+    final mode = kDebugMode ? 'Debug' : 'Release';
     return '''
-═══════════════════════════════════════
-📊 CONFIGURATION INFO
-═══════════════════════════════════════
+CONFIGURATION INFO
 Platform: $platform
 Mode: $mode
 API Backend URL: $_backendUrl
@@ -151,10 +139,7 @@ Voltage Min: $_voltageMin V
 Voltage Max: $_voltageMax V
 Amperage Max: $_amperageMax A
 Theme: $_themeMode
-═══════════════════════════════════════
-Note: Google OAuth always uses Heroku (HTTPS required)
-API backend defaults to localhost:8000 for local development
-═══════════════════════════════════════
-    ''';
+Google sign-in token verification uses the configured API backend.
+''';
   }
 }

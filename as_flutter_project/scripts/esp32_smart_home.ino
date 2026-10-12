@@ -6,7 +6,7 @@
  * FEATURES:
  * - Device Control (Relay switching via MQTT)
  * - Energy Monitoring (ZMPT101B + SCT-013-030 x4)
- * - Firebase Real-time Database Integration
+ * - PostgreSQL energy ingestion over authenticated HTTP
  * - HiveMQ Cloud MQTT (TLS/SSL)
  * - Auto-reconnect WiFi & MQTT
  *
@@ -50,24 +50,25 @@
 #include <HTTPClient.h>
 #include <EEPROM.h>
 #include <math.h>
+#include "secrets.h"
 
 // ============================================================================
 //                         CONFIGURATION - CHANGE THESE!
 // ============================================================================
 
 // WiFi Configuration
-const char* ssid = "YOUR_WIFI_SSID";           // <- Change this!
-const char* password = "YOUR_WIFI_PASSWORD";   // <- Change this!
+const char* ssid = WIFI_SSID;
+const char* password = WIFI_PASSWORD;
 
-// Firebase Configuration (for energy data)
-const char* FIREBASE_HOST = "smart-home-iot-5ef3e-default-rtdb.asia-southeast1.firebasedatabase.app";
-const char* USER_ID = "3B6ahiyGwHOcL6dtM70ZmirxakN2"; // Firebase User UID
+// PostgreSQL API ingestion settings
+const char* API_BASE_URL = BACKEND_API_BASE_URL;
+const char* energyDeviceId = ENERGY_DEVICE_ID; // Must match the registered energy device ID
 
 // MQTT Broker Configuration (HiveMQ Cloud)
-const char* mqtt_server = "de9d5f2926cf45349f923cadced1aece.s1.eu.hivemq.cloud";
-const int mqtt_port = 8883;
-const char* mqtt_username = "as_flutter_user";
-const char* mqtt_password = "SmartHome@2025";
+const char* mqtt_server = MQTT_SERVER;
+const int mqtt_port = MQTT_PORT;
+const char* mqtt_username = MQTT_USERNAME;
+const char* mqtt_password = MQTT_PASSWORD;
 
 // ============================================================================
 //                              PIN CONFIGURATION
@@ -106,7 +107,7 @@ const char* mqtt_password = "SmartHome@2025";
 //                            DEVICE CONFIGURATION
 // ============================================================================
 
-String device_id = "admin";
+String device_id = ENERGY_DEVICE_ID;
 String device_name = "Smart Home Controller";
 
 // Device Management
@@ -144,8 +145,8 @@ unsigned long reconnectDelayMs = 1000;
 const unsigned long maxReconnectDelayMs = 30000;
 unsigned long lastSensorRead = 0;
 const unsigned long sensorInterval = 1000;  // Read sensors every 1 second
-unsigned long lastFirebaseUpload = 0;
-const unsigned long firebaseInterval = 5000; // Upload to Firebase every 5 seconds
+unsigned long lastApiUpload = 0;
+const unsigned long apiUploadInterval = 5000; // Upload to PostgreSQL API every 5 seconds
 unsigned long startTime = 0; // For timestamp calculation
 
 // Energy Data
@@ -176,7 +177,8 @@ void publishDeviceStatus(const String &name, bool isOn);
 double readVoltageRMS();
 double readCurrentRMS(int pin);
 void readAllSensors();
-void uploadToFirebase();
+void uploadEnergyToPostgres();
+void uploadSensorReadingsToPostgres();
 void uploadToMqtt();
 
 // Utilities
@@ -346,10 +348,11 @@ void loop() {
     uploadToMqtt();
   }
 
-  // Upload to Firebase every 5 seconds
-  if (millis() - lastFirebaseUpload >= firebaseInterval) {
-    lastFirebaseUpload = millis();
-    uploadToFirebase();
+  // Upload energy readings to the PostgreSQL API every 5 seconds
+  if (millis() - lastApiUpload >= apiUploadInterval) {
+    lastApiUpload = millis();
+    uploadEnergyToPostgres();
+    uploadSensorReadingsToPostgres();
   }
 
   // WiFi reconnection check
@@ -869,44 +872,51 @@ String getTimestamp() {
   return String(buf);
 }
 
-void uploadToFirebase() {
+void uploadEnergyToPostgres() {
   if (WiFi.status() != WL_CONNECTED) return;
-
   HTTPClient http;
-
-  // Upload to Firebase Realtime Database
-  String url = "https://" + String(FIREBASE_HOST) +
-               "/users/" + String(USER_ID) +
-               "/sensors/energy.json";
-
+  String url = String(API_BASE_URL) + "/ingest/energy?device_id=" + String(energyDeviceId);
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-API-Key", DEVICE_INGEST_API_KEY);
+  String json = "{\"voltage\":" + String(voltage, 2) +
+                ",\"current\":" + String(current_total, 2) +
+                ",\"power\":" + String(power, 2) +
+                ",\"energy\":" + String(energy_kwh, 4) +
+                ",\"channels\":{\"ch1\":" + String(current_ch1, 2) +
+                ",\"ch2\":" + String(current_ch2, 2) +
+                ",\"ch3\":" + String(current_ch3, 2) +
+                ",\"ch4\":" + String(current_ch4, 2) + "}}";
+  int httpCode = http.POST(json);
+  if (httpCode >= 200 && httpCode < 300) Serial.println("[API] Energy upload OK");
+  else { Serial.print("[API] Energy upload failed: "); Serial.println(httpCode); }
+  http.end();
+}
 
-  // Create JSON payload - ALL VALUES AS PROPER TYPES
-  // timestamp must be STRING for Flutter parsing
-  String json = "{";
-  json += "\"voltage\":" + String(voltage, 2) + ",";
-  json += "\"current\":" + String(current_total, 2) + ",";
-  json += "\"power\":" + String(power, 2) + ",";
-  json += "\"energy\":" + String(energy_kwh, 4) + ",";
-  json += "\"timestamp\":\"" + getTimestamp() + "\",";
-  json += "\"uptime_ms\":" + String(millis()) + ",";
-  json += "\"channels\":{";
-  json += "\"ch1\":" + String(current_ch1, 2) + ",";
-  json += "\"ch2\":" + String(current_ch2, 2) + ",";
-  json += "\"ch3\":" + String(current_ch3, 2) + ",";
-  json += "\"ch4\":" + String(current_ch4, 2);
-  json += "}}";
-
-  int httpCode = http.PUT(json);
-
-  if (httpCode == HTTP_CODE_OK) {
-    Serial.println("[FIREBASE] Upload OK");
-  } else {
-    Serial.print("[FIREBASE] Error: ");
-    Serial.println(httpCode);
+void uploadSensorReadingsToPostgres() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  HTTPClient http;
+  String url = String(API_BASE_URL) + "/ingest/sensors?device_id=" + String(energyDeviceId);
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-API-Key", DEVICE_INGEST_API_KEY);
+  String json = "{\"readings\":[";
+  json += "{\"sensor_type\":\"voltage\",\"value\":" + String(voltage, 2) + ",\"unit\":\"V\"},";
+  json += "{\"sensor_type\":\"current\",\"value\":" + String(current_total, 2) + ",\"unit\":\"A\"},";
+  json += "{\"sensor_type\":\"power\",\"value\":" + String(power, 2) + ",\"unit\":\"W\"},";
+  json += "{\"sensor_type\":\"energy\",\"value\":" + String(energy_kwh, 4) + ",\"unit\":\"kWh\"},";
+  json += "{\"sensor_type\":\"channel_ch1_current\",\"value\":" + String(current_ch1, 2) + ",\"unit\":\"A\"},";
+  json += "{\"sensor_type\":\"channel_ch2_current\",\"value\":" + String(current_ch2, 2) + ",\"unit\":\"A\"},";
+  json += "{\"sensor_type\":\"channel_ch3_current\",\"value\":" + String(current_ch3, 2) + ",\"unit\":\"A\"},";
+  json += "{\"sensor_type\":\"channel_ch4_current\",\"value\":" + String(current_ch4, 2) + ",\"unit\":\"A\"}]}";
+  int httpCode = http.POST(json);
+  if (httpCode >= 200 && httpCode < 300) Serial.println("[API] Sensor readings upload OK");
+  else {
+    Serial.print("[API] Sensor readings upload failed: ");
+    Serial.print(httpCode);
+    Serial.print(" ");
+    Serial.println(http.getString());
   }
-
   http.end();
 }
 

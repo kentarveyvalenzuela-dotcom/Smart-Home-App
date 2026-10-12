@@ -112,7 +112,7 @@ class _NotificationsPageState extends State<NotificationsPage>
   Future<void> _resolveAlert(String alertId, int index) async {
     final result = await _authService.resolveAlert(alertId);
 
-    if (result != null && result['success'] == true && mounted) {
+    if (result != null && mounted) {
       setState(() {
         _alerts.removeAt(index);
       });
@@ -149,7 +149,7 @@ class _NotificationsPageState extends State<NotificationsPage>
               if (result != null && result['success'] == true && mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Cleared ${result['cleared_count']} alerts'),
+                    content: Text('Cleared ${result['deleted'] ?? result['cleared_count'] ?? 0} alerts'),
                     backgroundColor: AppColors.electricGreen,
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(
@@ -913,14 +913,23 @@ class _NotificationsPageState extends State<NotificationsPage>
   Widget _buildModernAlertItem(dynamic alert, int index, bool isDark) {
     if (alert is! Map<String, dynamic>) return const SizedBox();
 
-    String alertType = alert['alert_type'] ?? 'unknown';
+    final metadata = alert['metadata'] is Map
+        ? Map<String, dynamic>.from(alert['metadata'] as Map)
+        : <String, dynamic>{};
+    String alertType = (alert['alert_type'] ?? metadata['threshold_key'] ??
+            alert['title'] ?? 'unknown')
+        .toString()
+        .toLowerCase();
     String message = alert['message'] ?? 'Unknown alert';
-    bool isResolved = alert['is_resolved'] ?? false;
+    bool isResolved = alert['is_resolved'] ?? alert['resolved'] ?? false;
+    final readingValue = alert['value'] ?? metadata['value'];
+    final thresholdValue = alert['threshold'] ?? metadata['threshold'];
+    final timestampValue = alert['timestamp'] ?? alert['created_at'];
 
     DateTime? timestamp;
-    if (alert['timestamp'] != null) {
+    if (timestampValue != null) {
       try {
-        timestamp = DateTime.parse(alert['timestamp']);
+        timestamp = DateTime.parse(timestampValue.toString());
       } catch (e) {
         timestamp = null;
       }
@@ -1022,25 +1031,25 @@ class _NotificationsPageState extends State<NotificationsPage>
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${alert['device_name'] ?? 'Unknown'} • Pin ${alert['pin_number'] ?? '-'}',
+                          '${alert['device_name'] ?? alert['device_id'] ?? 'Unknown device'}',
                           style: TextStyle(
                               fontSize: 12, color: Colors.grey.shade500),
                         ),
-                        if (alert['value'] != null) ...[
+                        if (readingValue != null) ...[
                           const SizedBox(height: 2),
                           Row(
                             children: [
                               Text(
-                                '${alert['value']}',
+                                '${readingValue} ${metadata['unit'] ?? ''}'.trim(),
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: isResolved ? Colors.grey : iconColor,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              if (alert['threshold'] != null) ...[
+                              if (thresholdValue != null) ...[
                                 Text(
-                                  ' / Threshold: ${alert['threshold']}',
+                                  ' / Threshold: $thresholdValue ${metadata['unit'] ?? ''}',
                                   style: TextStyle(
                                       fontSize: 11,
                                       color: Colors.grey.shade500),

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'api_service.dart';
 
@@ -203,7 +205,9 @@ class LogService extends ApiService {
     return getRequest(
       '/logs/export',
       parser: (data) {
-        return data is String ? data : '';
+        if (data is String) return data; // CSV is returned as plain text.
+        if (data is List || data is Map) return jsonEncode(data);
+        return '';
       },
       queryParams: {
         'format': format,

@@ -124,7 +124,7 @@ class SyncService {
         }
         
         final data = json.decode(resp.body);
-        final List deviceList = data['devices'] ?? [];
+        final List deviceList = data is List ? data : (data['devices'] ?? []);
         
         debugPrint('✅ Got ${deviceList.length} devices from backend');
         
@@ -132,9 +132,9 @@ class SyncService {
         return deviceList.map((device) {
           final mqttId = device['mqtt_client_id'] ?? device['device_id'] ?? '';
           return {
-            'device_id': mqttId,  // Use mqtt_client_id as device_id for MQTT control
-            'backend_device_id': device['device_id'] ?? '',  // Keep Firebase ID for backend calls
-            'name': device['device_name'] ?? 'Unknown Device',
+            'device_id': mqttId, // Use mqtt_client_id as device_id for MQTT control
+            'backend_device_id': device['id']?.toString() ?? device['backend_device_id'] ?? '',
+            'name': device['device_name'] ?? device['name'] ?? 'Unknown Device',
             'isOn': false,
             'mqtt_client_id': mqttId,
             'topic': 'home/device/$mqttId',  // ✅ FIXED: Use correct topic format

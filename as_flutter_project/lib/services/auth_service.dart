@@ -5,9 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'config_service.dart';
-// Platform-aware web redirect helper
-import '../utils/web_redirect_stub.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:google_sign_in/google_sign_in.dart';
+
+const _googleClientId = String.fromEnvironment(
+  'GOOGLE_CLIENT_ID',
+  defaultValue:
+      '541021035552-46c0utctt41vjagp4a8u7jdasu2csmk3.apps.googleusercontent.com',
+);
 
 class AuthService {
   String get _baseUrl => ConfigService().backendUrl;
@@ -150,6 +154,14 @@ class AuthService {
       }
 
       if (response.statusCode == 200) {
+        if (data['requires_2fa'] == true) {
+          return {
+            'success': true,
+            'requires2FA': true,
+            'email': data['email'] ?? data['user']?['email'],
+            'user': data['user']
+          };
+        }
         // Store user info from new backend structure
         _currentUserId = data['user']?['id']?.toString();
         _currentUserEmail = data['user']?['email']?.toString();
@@ -264,44 +276,6 @@ class AuthService {
     }
   }
 
-  // Confirm password reset with email and new password
-  // Used after user clicks the reset link in their email
-  Future<Map<String, dynamic>?> confirmPasswordReset(
-      String email, String newPassword) async {
-    try {
-      final response = await http
-          .post(
-            Uri.parse('$_baseUrl/auth/password-reset/confirm'),
-            headers: {'Content-Type': 'application/json'},
-            body: json.encode({'email': email, 'new_password': newPassword}),
-          )
-          .timeout(const Duration(seconds: 10));
-
-      dynamic data;
-      try {
-        data = json.decode(response.body);
-      } catch (e) {
-        data = {'detail': response.body};
-      }
-
-      if (response.statusCode == 200) {
-        debugPrint('✅ Password reset successfully for $email');
-        return {
-          'success': true,
-          'message': data['message'] ?? 'Password has been reset successfully'
-        };
-      } else {
-        return {
-          'success': false,
-          'error': _extractErrorMessage(data, 'Failed to reset password')
-        };
-      }
-    } catch (e) {
-      debugPrint('Password reset error: $e');
-      return {'success': false, 'error': e.toString()};
-    }
-  }
-
   // Get current user profile
   Future<Map<String, dynamic>?> getCurrentUser() async {
     try {
@@ -320,9 +294,9 @@ class AuthService {
 
       if (response.statusCode == 200) {
         final user = json.decode(response.body);
-        _currentUserId = user['id'];
-        _currentUserEmail = user['email'];
-        _currentUserName = user['name'];
+        _currentUserId = user['id']?.toString();
+        _currentUserEmail = user['email']?.toString();
+        _currentUserName = user['name']?.toString();
 
         return {'success': true, 'user': user};
       } else {
@@ -335,131 +309,56 @@ class AuthService {
     }
   }
 
-  // Google Sign-In with direct OAuth redirect (works on web)
+  // Exchange a Google OAuth identity token for an application session.
   Future<Map<String, dynamic>?> signInWithGoogle() async {
     try {
-      debugPrint('🔄 Starting Google OAuth flow...');
-
-      // For web: Use direct redirect to Google OAuth, then backend will handle it
-      // For mobile: Use google_sign_in package (handled elsewhere)
-      if (kIsWeb) {
-        // Web: Use FirebaseAuth signInWithPopup to get Google ID token, then send to backend
-        final fb_auth.FirebaseAuth firebaseAuth = fb_auth.FirebaseAuth.instance;
-        final provider = fb_auth.GoogleAuthProvider();
-
-        final userCredential = await firebaseAuth.signInWithPopup(provider);
-        final fb_auth.User? user = userCredential.user;
-        if (user == null) {
-          debugPrint('❌ User cancelled Google sign-in popup');
-          return {'success': false, 'error': 'Google sign-in was cancelled'};
-        }
-
-        final idToken = await user.getIdToken();
-        if (idToken == null) {
-          debugPrint('❌ Failed to get ID token from Firebase');
-          return {
-            'success': false,
-            'error': 'Failed to obtain ID token from Firebase'
-          };
-        }
-
-        debugPrint('✅ Got Firebase ID token (length: ${idToken.length})');
-
-        // ⚠️ IMPORTANT: Google OAuth ALWAYS uses Heroku (requires HTTPS!)
-        // Even if default backend is localhost, Google Sign-In must use production URL
-        final googleOAuthUrl = ConfigService().getGoogleOAuthUrl();
-        debugPrint(
-            '🔄 Sending ID token to backend: $googleOAuthUrl/auth/google-signin');
-
-        final response = await http
-            .post(
-              Uri.parse('$googleOAuthUrl/auth/google-signin'),
+      final account = await GoogleSignIn(
+        clientId: kIsWeb ? _googleClientId : null,
+        serverClientId: _googleClientId,
+        scopes: ['email', 'profile'],
+      ).signIn();
+      if (account == null)
+        return {'success': false, 'error': 'Google sign-in was cancelled'};
+      final idToken = (await account.authentication).idToken;
+      if (idToken == null)
+        return {'success': false, 'error': 'Google did not return an ID token'};
+      final response = await http
+          .post(Uri.parse('$_baseUrl/auth/google-signin'),
               headers: {'Content-Type': 'application/json'},
-              body: json.encode({'id_token': idToken}),
-            )
-            .timeout(const Duration(seconds: 10));
-
-        debugPrint('📊 Backend response status: ${response.statusCode}');
-        debugPrint('📦 Backend response body: ${response.body}');
-
-        dynamic data;
-        try {
-          data = json.decode(response.body);
-        } catch (e) {
-          debugPrint('⚠️ Failed to parse JSON response: $e');
-          data = {'detail': response.body};
-        }
-
-        if (response.statusCode == 200) {
-          // Backend may require 2FA
-          if ((data is Map &&
-              (data['requires_2fa'] == true || data['requires2fa'] == true))) {
-            final emailFromBackend =
-                (data['user'] is Map) ? data['user']['email'] : null;
-            debugPrint(
-                '🔐 2FA Required for: ${emailFromBackend ?? user.email}');
-            return {
-              'success': true,
-              'requires2FA': true,
-              'email': emailFromBackend ?? user.email,
-              'message': data['message'] ?? '2FA required'
-            };
-          }
-
-          // No 2FA - backend may return a token
-          // Try multiple key names for flexibility
-          final tokenCandidate =
-              data['token'] ?? data['access_token'] ?? data['accessToken'];
-
-          if (tokenCandidate != null) {
-            final tokenStr = tokenCandidate.toString();
-            debugPrint(
-                '🔑 Backend returned token (length: ${tokenStr.length})');
-
-            // Store token directly without fetching user (we already have user data from backend)
-            try {
-              await _storeToken(tokenStr);
-              debugPrint('💾 Token stored successfully');
-
-              // Update current user from the response data
-              if (data['user'] != null && data['user'] is Map) {
-                _currentUserId = data['user']['uid']?.toString() ?? user.uid;
-                _currentUserEmail =
-                    data['user']['email']?.toString() ?? user.email;
-                _currentUserName = data['user']['name']?.toString();
-                debugPrint('✅ User data updated from backend response');
-              }
-            } catch (e) {
-              debugPrint('❌ Error storing token: $e');
-            }
-          } else {
-            debugPrint(
-                '⚠️ No token returned by backend. Response keys: ${data.keys}');
-          }
-
-          return {
-            'success': true,
-            'requires2FA': false,
-            'user': data['user'] ?? {'email': user.email, 'uid': user.uid},
-            'token': tokenCandidate,
-            'message': data['message'] ?? 'Sign-in successful'
-          };
-        } else {
-          final errorMsg = data['detail'] ??
-              data['message'] ??
-              data['error'] ??
-              response.body;
-          debugPrint(
-              '❌ Backend returned error (${response.statusCode}): $errorMsg');
-          return {'success': false, 'error': errorMsg.toString()};
-        }
-      }
-
-      // Mobile: Use google_sign_in package (handled elsewhere)
-      return {'success': false, 'error': 'Platform not supported'};
+              body: json.encode({'id_token': idToken}))
+          .timeout(const Duration(seconds: 15));
+      final data = json.decode(response.body);
+      if (response.statusCode != 200)
+        return {
+          'success': false,
+          'error': _extractErrorMessage(data, 'Google sign-in failed')
+        };
+      if (data['requires_2fa'] == true)
+        return {
+          'success': true,
+          'requires2FA': true,
+          'email': data['user']?['email'] ?? account.email
+        };
+      final user = Map<String, dynamic>.from(data['user'] as Map);
+      final token = data['access_token']?.toString() ?? '';
+      if (token.isEmpty)
+        return {
+          'success': false,
+          'error': 'Backend did not issue an application token'
+        };
+      await _storeToken(token);
+      _currentUserId = user['id']?.toString();
+      _currentUserEmail = user['email']?.toString() ?? account.email;
+      _currentUserName = user['name']?.toString() ?? account.displayName;
+      return {
+        'success': true,
+        'requires2FA': false,
+        'user': user,
+        'token': token
+      };
     } catch (e) {
-      debugPrint('❌ Google Sign-In error: $e');
-      return {'success': false, 'error': e.toString()};
+      debugPrint('Google sign-in error: $e');
+      return {'success': false, 'error': _normalizeNetworkError(e)};
     }
   }
 
@@ -478,61 +377,22 @@ class AuthService {
     }
   }
 
-  // Token management - get fresh Firebase ID token
   Future<String?> getAccessToken() async {
-    try {
-      // Try to get fresh token from Firebase Auth first
-      final firebaseUser = fb_auth.FirebaseAuth.instance.currentUser;
-      if (firebaseUser != null) {
-        // Force refresh to get a fresh token
-        final idToken = await firebaseUser.getIdToken(true);
-        if (idToken != null && idToken.isNotEmpty) {
-          debugPrint(
-              '🔑 Got fresh Firebase ID token (length: ${idToken.length})');
-          // Also update stored token
-          await _storeToken(idToken);
-          return idToken;
-        }
-      }
-
-      // Fallback to stored token if Firebase user is null
-      final prefs = await SharedPreferences.getInstance();
-      final storedToken = prefs.getString('access_token');
-      if (storedToken != null) {
-        debugPrint('🔑 Using stored token (length: ${storedToken.length})');
-      }
-      return storedToken;
-    } catch (e) {
-      debugPrint('❌ Error getting access token: $e');
-      // Fallback to stored token
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getString('access_token');
-    }
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('access_token');
   }
 
-  // Get current Firebase user info directly
-  Future<Map<String, dynamic>?> getCurrentFirebaseUser() async {
+  Future<Map<String, dynamic>?> getCurrentUserProfile() async {
     try {
-      final firebaseUser = fb_auth.FirebaseAuth.instance.currentUser;
-      if (firebaseUser != null) {
-        // Get provider info
-        String provider = 'email';
-        if (firebaseUser.providerData.isNotEmpty) {
-          provider = firebaseUser.providerData.first.providerId;
-        }
-
-        return {
-          'uid': firebaseUser.uid,
-          'email': firebaseUser.email,
-          'displayName': firebaseUser.displayName,
-          'photoURL': firebaseUser.photoURL,
-          'provider': provider,
-          'emailVerified': firebaseUser.emailVerified,
-        };
-      }
-      return null;
+      final response = await http.get(Uri.parse('$_baseUrl/auth/me'),
+          headers: await getAuthHeaders());
+      if (response.statusCode != 200) return null;
+      final data = json.decode(response.body);
+      return data['user'] is Map
+          ? Map<String, dynamic>.from(data['user'])
+          : null;
     } catch (e) {
-      debugPrint('❌ Error getting Firebase user: $e');
+      debugPrint('Current user lookup failed: $e');
       return null;
     }
   }
@@ -595,6 +455,7 @@ class AuthService {
           .post(
             Uri.parse('$_baseUrl/devices/$deviceId/configure'),
             headers: headers,
+            body: json.encode({}),
           )
           .timeout(
             const Duration(seconds: 10),
@@ -623,6 +484,29 @@ class AuthService {
   }
 
   // 🎯 Register a new device with backend
+  Future<Map<String, dynamic>?> ensureEnergyDeviceRegistered() async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/devices/register-energy'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 10));
+      final data = json.decode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'device': data['device']};
+      }
+      return {
+        'success': false,
+        'error': data['detail'] ?? 'Energy device registration failed',
+      };
+    } catch (e) {
+      debugPrint('Energy device registration error: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   Future<Map<String, dynamic>?> registerDevice({
     required String deviceName,
     required String mqttClientId,
@@ -807,6 +691,7 @@ class AuthService {
               'sensor_type': sensorType,
               'value': value,
               'unit': unit,
+              'quality': quality,
             }),
           )
           .timeout(
@@ -836,7 +721,9 @@ class AuthService {
       {String? deviceId}) async {
     try {
       final headers = await getAuthHeaders();
-      String url = '$_baseUrl/sensors/device/${deviceId ?? "all"}/latest';
+      String url = deviceId == null
+          ? '$_baseUrl/sensors/all?limit=100'
+          : '$_baseUrl/sensors/device/$deviceId/latest';
 
       final response = await http
           .get(
@@ -850,8 +737,13 @@ class AuthService {
           );
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        return data.map((reading) => reading as Map<String, dynamic>).toList();
+        final decoded = json.decode(response.body);
+        if (decoded is List) {
+          return decoded
+              .map((reading) => Map<String, dynamic>.from(reading as Map))
+              .toList();
+        }
+        return decoded is Map ? [Map<String, dynamic>.from(decoded)] : [];
       } else {
         debugPrint('Failed to get sensor readings: ${response.body}');
         return [];
@@ -920,6 +812,7 @@ class AuthService {
       final queryParams = {
         'limit': limit.toString(),
         'hours': hours.toString(),
+        'skip': skip.toString(),
       };
       if (logType != null) queryParams['log_type'] = logType;
       if (severity != null) queryParams['severity'] = severity;
@@ -1008,9 +901,12 @@ class AuthService {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        final logs = data is List ? data : (data['logs'] ?? []);
         return {
-          'logs': data['logs'] ?? [],
-          'total_count': data['total'] ?? data['count'] ?? 0,
+          'logs': logs,
+          'total_count': data is List
+              ? data.length
+              : (data['total'] ?? data['count'] ?? 0),
         };
       }
       return null;
@@ -1089,7 +985,7 @@ class AuthService {
       if (token == null) return null;
 
       final queryParams = {
-        'skip': skip.toString(),
+        'offset': skip.toString(),
         'limit': limit.toString(),
         'hours': hours.toString(),
         if (deviceId != null) 'device_id': deviceId,
@@ -1282,6 +1178,40 @@ class AuthService {
     }
   }
 
+  Future<Map<String, dynamic>?> getSensorThresholds() async {
+    try {
+      final token = await getAccessToken();
+      if (token == null) return null;
+      final response = await http.get(Uri.parse('$_baseUrl/settings/sensor-thresholds'),
+          headers: {'Authorization': 'Bearer $token'}).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) return Map<String, dynamic>.from(json.decode(response.body));
+      return null;
+    } catch (e) {
+      debugPrint('Get sensor thresholds error: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> updateSensorThresholds({
+    required double voltageMin,
+    required double voltageMax,
+    required double amperageMax,
+  }) async {
+    try {
+      final token = await getAccessToken();
+      if (token == null) return null;
+      final response = await http.put(Uri.parse('$_baseUrl/settings/sensor-thresholds'),
+          headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+          body: json.encode({'voltage_min': voltageMin, 'voltage_max': voltageMax,
+            'amperage_max': amperageMax})).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) return Map<String, dynamic>.from(json.decode(response.body));
+      return null;
+    } catch (e) {
+      debugPrint('Update sensor thresholds error: $e');
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>?> deleteAccount() async {
     try {
       // First, try to delete from backend
@@ -1300,18 +1230,6 @@ class AuthService {
           }
         } catch (e) {
           debugPrint('⚠️ Backend delete error: $e');
-        }
-      }
-
-      // Then delete from Firebase Auth
-      final firebaseUser = fb_auth.FirebaseAuth.instance.currentUser;
-      if (firebaseUser != null) {
-        try {
-          await firebaseUser.delete();
-          debugPrint('✅ Account deleted from Firebase');
-        } catch (e) {
-          debugPrint('⚠️ Firebase delete error: $e');
-          // If Firebase delete fails (requires recent sign-in), still proceed with logout
         }
       }
 
@@ -1499,9 +1417,9 @@ class AuthService {
 
         // Update user info if provided
         if (data['user'] != null) {
-          _currentUserId = data['user']['id'];
-          _currentUserEmail = data['user']['email'];
-          _currentUserName = data['user']['name'];
+          _currentUserId = data['user']['id']?.toString();
+          _currentUserEmail = data['user']['email']?.toString();
+          _currentUserName = data['user']['name']?.toString();
         }
 
         return {'success': true, 'message': 'Device verified successfully'};

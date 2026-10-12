@@ -20,29 +20,22 @@ class MqttService {
   Completer<void>? _connectionCompleter;
 
   // Broadcast streams for UI listeners
-  final _connectionStateController = StreamController<MqttConnectionState>.broadcast();
+  final _connectionStateController =
+      StreamController<MqttConnectionState>.broadcast();
   final _errorController = StreamController<String?>.broadcast();
   final _messageController = StreamController<ServiceMessage>.broadcast();
 
-  Stream<MqttConnectionState> get connectionState => _connectionStateController.stream;
+  Stream<MqttConnectionState> get connectionState =>
+      _connectionStateController.stream;
   Stream<String?> get errors => _errorController.stream;
   Stream<ServiceMessage> get messages => _messageController.stream;
 
   MqttConnectionState get currentConnectionState => _connectionState;
   String? get currentError => _errorMessage;
 
-  int _selectedBrokerIndex = 0; // Default to localhost
+  int _selectedBrokerIndex = 0;
 
   final List<Map<String, dynamic>> _brokerOptions = [
-    {
-      'label': 'HiveMQ Cloud Production ⭐',
-      'host': 'de9d5f2926cf45349f923cadced1aece.s1.eu.hivemq.cloud',
-      'port': 8883,
-      'isWebSocket': false,
-      'username': 'as_flutter_user',
-      'password': 'SmartHome@2025',
-      'useTLS': true,
-    },
     {
       'label': 'localhost (TCP 1883)',
       'host': 'localhost',
@@ -91,7 +84,7 @@ class MqttService {
   Future<void> _loadBrokerPreference() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _selectedBrokerIndex = prefs.getInt('mqtt_broker_index') ?? 0; // Default to HiveMQ Cloud
+      _selectedBrokerIndex = prefs.getInt('mqtt_broker_index') ?? 0;
     } catch (e) {
       debugPrint('Failed to load broker preference: $e');
     }
@@ -119,6 +112,12 @@ class MqttService {
   Future<void> connect() async {
     _reconnectTimer?.cancel();
 
+    if (kIsWeb) {
+      _updateConnectionState(MqttConnectionState.disconnected);
+      _updateError(null);
+      return;
+    }
+
     if (_connectionCompleter != null && !_connectionCompleter!.isCompleted) {
       _connectionCompleter!.completeError('New connection attempt');
     }
@@ -127,23 +126,20 @@ class MqttService {
     try {
       final brokerCfg = _brokerOptions[_selectedBrokerIndex];
       final bool isWebSocket = brokerCfg['isWebSocket'] as bool? ?? true;
-      final String clientId = 'flutter_home_${DateTime.now().millisecondsSinceEpoch}';
+      final String clientId =
+          'flutter_home_${DateTime.now().millisecondsSinceEpoch}';
 
       _updateConnectionState(MqttConnectionState.connecting);
       _updateError(null);
 
       debugPrint('🔌 MqttService connecting to: ${brokerCfg['label']}');
 
-      // Web only supports WebSocket. If on web and selected broker is TLS-only, switch to WebSocket
       int brokerIdx = _selectedBrokerIndex;
-      if (kIsWeb && !brokerCfg.containsKey('wsUrl')) {
-        debugPrint('⚠️ Web does not support TLS/TCP. Switching to WebSocket broker (broker.emqx.io)...');
-        brokerIdx = 2; // broker.emqx.io WebSocket
-      }
       final actualBrokerCfg = _brokerOptions[brokerIdx];
       final actualIsWebSocket = actualBrokerCfg['isWebSocket'] as bool? ?? true;
 
-      if ((kIsWeb || actualIsWebSocket) && actualBrokerCfg.containsKey('wsUrl')) {
+      if ((kIsWeb || actualIsWebSocket) &&
+          actualBrokerCfg.containsKey('wsUrl')) {
         final wsUrl = actualBrokerCfg['wsUrl'] as String;
         final browser = MqttBrowserClient(wsUrl, clientId);
         browser.port = actualBrokerCfg['port'] as int;
@@ -175,7 +171,7 @@ class MqttService {
         final useTLS = actualBrokerCfg['useTLS'] as bool? ?? false;
         final username = actualBrokerCfg['username'] as String?;
         final password = actualBrokerCfg['password'] as String?;
-        
+
         final server = MqttServerClient(host, clientId);
         server.port = port;
         server.keepAlivePeriod = 60;
@@ -191,12 +187,12 @@ class MqttService {
             .startClean()
             .withWillQos(MqttQos.atMostOnce)
             .keepAliveFor(60);
-        
+
         // Add authentication if provided
         if (username != null && password != null) {
           connMsg.authenticateAs(username, password);
         }
-        
+
         server.connectionMessage = connMsg;
 
         _client = server;
@@ -210,12 +206,14 @@ class MqttService {
 
       // Set up message listener
       if (_client?.updates != null) {
-        _client!.updates!.listen((List<MqttReceivedMessage<MqttMessage?>> msgs) {
+        _client!.updates!
+            .listen((List<MqttReceivedMessage<MqttMessage?>> msgs) {
           debugPrint('📨 [MQTT] Received ${msgs.length} message(s)');
           for (final m in msgs) {
             try {
               final payload = m.payload as MqttPublishMessage;
-              debugPrint('📥 [MESSAGE] Topic: ${m.topic} | Payload length: ${payload.payload.message.length}');
+              debugPrint(
+                  '📥 [MESSAGE] Topic: ${m.topic} | Payload length: ${payload.payload.message.length}');
               _messageController.add(ServiceMessage(m.topic, payload));
             } catch (e) {
               debugPrint('❌ [MESSAGE_ERROR] Failed to process message: $e');
@@ -224,7 +222,8 @@ class MqttService {
         });
         debugPrint('✅ Message listener registered');
       } else {
-        debugPrint('⚠️ WARNING: updates stream is null - messages may not be received!');
+        debugPrint(
+            '⚠️ WARNING: updates stream is null - messages may not be received!');
       }
 
       if (_connectionCompleter != null && !_connectionCompleter!.isCompleted) {
@@ -232,7 +231,8 @@ class MqttService {
       }
     } catch (e) {
       debugPrint('❌ MqttService connection failed: $e');
-      debugPrint('💡 Don\'t worry - device control works via backend API (Heroku → HiveMQ)');
+      debugPrint(
+          '💡 Don\'t worry - device control works via backend API (Heroku → HiveMQ)');
 
       _client?.disconnect();
 
@@ -265,8 +265,10 @@ class MqttService {
   void _scheduleReconnect() {
     // Limit reconnect attempts - app works without MQTT (backend handles MQTT)
     if (_reconnectAttempts >= 3) {
-      debugPrint('⚠️ MQTT: Max reconnect attempts reached. App will work via backend API.');
-      debugPrint('💡 Device control still works - backend publishes to MQTT on your behalf.');
+      debugPrint(
+          '⚠️ MQTT: Max reconnect attempts reached. App will work via backend API.');
+      debugPrint(
+          '💡 Device control still works - backend publishes to MQTT on your behalf.');
       _updateError('MQTT offline - using backend API for device control');
       return;
     }
@@ -276,7 +278,8 @@ class MqttService {
 
     _reconnectAttempts++;
     final delay = Duration(seconds: 5 * _reconnectAttempts);
-    debugPrint('🔄 MqttService scheduling reconnect attempt $_reconnectAttempts in ${delay.inSeconds}s');
+    debugPrint(
+        '🔄 MqttService scheduling reconnect attempt $_reconnectAttempts in ${delay.inSeconds}s');
 
     _reconnectTimer = Timer(delay, () {
       if (_connectionState != MqttConnectionState.connected) {
@@ -310,20 +313,23 @@ class MqttService {
   }
 
   /// Publish a message
-  Future<void> publish(String topic, String message, {bool retain = true}) async {
+  Future<void> publish(String topic, String message,
+      {bool retain = true}) async {
     if (_client == null || _connectionState != MqttConnectionState.connected) {
       debugPrint('⚠️ Cannot publish to $topic - not connected');
 
       if (_connectionCompleter != null && !_connectionCompleter!.isCompleted) {
         try {
-          await _connectionCompleter!.future.timeout(const Duration(seconds: 10));
+          await _connectionCompleter!.future
+              .timeout(const Duration(seconds: 10));
         } catch (e) {
           debugPrint('❌ Failed to wait for connection: $e');
           throw Exception('Not connected to MQTT broker');
         }
       }
 
-      if (_client == null || _connectionState != MqttConnectionState.connected) {
+      if (_client == null ||
+          _connectionState != MqttConnectionState.connected) {
         throw Exception('Not connected to MQTT broker');
       }
     }
@@ -331,7 +337,8 @@ class MqttService {
     try {
       final builder = MqttClientPayloadBuilder();
       builder.addString(message);
-      _client!.publishMessage(topic, MqttQos.atLeastOnce, builder.payload!, retain: retain);
+      _client!.publishMessage(topic, MqttQos.atLeastOnce, builder.payload!,
+          retain: retain);
       debugPrint('📤 Published: $message to $topic');
     } catch (e) {
       debugPrint('❌ Publish failed: $e');

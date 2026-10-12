@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'screens/auth_page.dart';
+import 'screens/monitor_page.dart';
 import 'screens/home_screen.dart';
 import 'services/mqtt_service.dart';
 import 'services/firebase_database_service.dart';
@@ -150,7 +151,7 @@ class MyApp extends StatelessWidget {
             ),
             cardTheme: CardThemeData(
               elevation: 4,
-              shadowColor: AppColors.primaryBlue.withOpacity(0.2),
+              shadowColor: AppColors.primaryBlue.withValues(alpha: 0.2),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -218,7 +219,7 @@ class MyApp extends StatelessWidget {
             cardTheme: CardThemeData(
               elevation: 4,
               color: AppColors.darkBgCard,
-              shadowColor: AppColors.primaryBlue.withOpacity(0.3),
+              shadowColor: AppColors.primaryBlue.withValues(alpha: 0.3),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -267,6 +268,7 @@ class MyApp extends StatelessWidget {
             '/': (context) => const HomeScreen(),
             '/home': (context) => const HomeScreen(),
             '/login': (context) => const AuthPage(),
+            '/monitor': (context) => const MonitorPage(),
           },
         );
       },

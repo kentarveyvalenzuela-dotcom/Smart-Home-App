@@ -385,105 +385,26 @@ class _DevicePageState extends State<DevicePage>
   }
 
   Future<bool> _sendDeviceControl(String deviceTopic, String action) async {
-    debugPrint('========== DEVICE CONTROL DEBUG ==========');
-    debugPrint('[DEBUG] deviceTopic param: $deviceTopic');
-    debugPrint('[DEBUG] action param: $action');
-    debugPrint('[DEBUG] Total appliances: ${appliances.length}');
-
-    // Print all appliances for debugging
-    for (int i = 0; i < appliances.length; i++) {
-      final ap = appliances[i];
-      debugPrint(
-          '[DEBUG] Appliance[$i]: topic="${ap['topic']}", device_id="${ap['device_id']}", name="${ap['name']}"');
-    }
-
     try {
       final appliance = appliances.firstWhere(
         (a) => a['topic'] == deviceTopic,
         orElse: () => {},
       );
+      if (appliance.isEmpty) return false;
 
-      if (appliance.isEmpty) {
-        debugPrint('[ERROR] Device not found! Looking for topic: $deviceTopic');
-        debugPrint(
-            '[ERROR] Available topics: ${appliances.map((a) => a['topic']).toList()}');
-        return false;
-      }
-
-      final mqttDeviceId = appliance['device_id'] as String? ?? '';
-      final pin = (appliance['pin'] as int?) ?? 23;
-
-      debugPrint('[DEBUG] Found appliance: $appliance');
-      debugPrint('[DEBUG] mqttDeviceId: $mqttDeviceId');
-      debugPrint('[DEBUG] pin: $pin');
-
+      final mqttDeviceId = appliance['device_id']?.toString() ?? '';
       if (mqttDeviceId.isEmpty) {
-        debugPrint('[ERROR] Device missing device_id');
         return false;
       }
-
-      debugPrint('[CMD] Sending: $action to $mqttDeviceId pin $pin');
-
-      // ===== METHOD 1: DIRECT MQTT (FAST!) =====
-      final mqttService = MqttService();
-      debugPrint(
-          '[DEBUG] MQTT connection state: ${mqttService.currentConnectionState}');
-
-      if (mqttService.currentConnectionState == MqttConnectionState.connected) {
-        try {
-          // Publish to home/device/{id}/set topic with ON/OFF payload
-          final topic = 'home/device/$mqttDeviceId/set';
-          debugPrint(
-              '[MQTT] Publishing to: $topic with payload: ${action.toUpperCase()}');
-          await mqttService.publish(topic, action.toUpperCase(), retain: false);
-          debugPrint('[MQTT] Published successfully!');
-
-          // Clear last response and wait for new one
-          _lastResponseTime.remove(deviceTopic);
-
-          // Wait for MQTT response (max 2 seconds)
-          final startTime = DateTime.now();
-          while (DateTime.now().difference(startTime).inSeconds < 2) {
-            if (_lastResponseTime.containsKey(deviceTopic)) {
-              debugPrint('[OK] Got response from hardware');
-              return true;
-            }
-            await Future.delayed(const Duration(milliseconds: 100));
-          }
-
-          // Command sent via MQTT even if no response
-          debugPrint('[OK] MQTT command sent (no response yet)');
-          return true;
-        } catch (e) {
-          debugPrint('[MQTT ERROR] Direct publish failed: $e');
-          // Fall through to backend API
-        }
-      } else {
-        debugPrint('[MQTT] Not connected, using backend API...');
-      }
-
-      // ===== METHOD 2: BACKEND API (FALLBACK) =====
-      final backendDeviceId =
-          appliance['backend_device_id'] as String? ?? mqttDeviceId;
-
-      debugPrint('[API] Sending via backend: $backendDeviceId pin $pin');
-
       final authService = AuthService();
       final result = await authService.sendDeviceControl(
-        device_id: backendDeviceId,
-        pin_number: pin,
+        device_id: (appliance['backend_device_id'] ?? mqttDeviceId).toString(),
+        pin_number: (appliance['pin'] as int?) ?? 23,
         action: action.toUpperCase(),
       );
-
-      if (result?['success'] == true) {
-        debugPrint('[OK] Command sent via backend');
-        return true;
-      } else {
-        debugPrint('[API ERROR] ${result?['error'] ?? 'Unknown error'}');
-        return false;
-      }
+      return result?['success'] == true && result?['mqtt_published'] == true;
     } catch (e) {
-      debugPrint('[ERROR] Control failed: $e');
+      debugPrint('[MQTT] Backend publish failed: $e');
       return false;
     }
   }
@@ -962,9 +883,8 @@ class _DevicePageState extends State<DevicePage>
       final authService = AuthService();
       final token = await authService.getAccessToken();
       if (token != null) {
-        // Try to get UID from Firebase Auth
-        final firebaseUser = await authService.getCurrentFirebaseUser();
-        return firebaseUser?['uid'] as String?;
+        final user = await authService.getCurrentUserProfile();
+        return user?['id']?.toString();
       }
     } catch (e) {
       debugPrint('Error getting user ID: $e');

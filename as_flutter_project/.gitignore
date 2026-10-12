@@ -68,9 +68,6 @@ android/key.properties
 **/*.jks
 **/*.keystore
 
-# Firebase service account and Google services config
-android/app/google-services.json
-backend/firebase-service-account.json
 
 # Environment files
 **/.env
@@ -79,6 +76,7 @@ backend/.env
 # Local secret files
 *.p12
 *.pem
+scripts/secrets.h
 
 # End of secret ignores
 # Widget Preview related
