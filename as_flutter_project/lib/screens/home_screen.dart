@@ -106,6 +106,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _initializeServices() async {
+    await NotificationService().initialize();
+    await AuthService().ensureEnergyDeviceRegistered();
     await _energyService.initialize();
 
     _readingSub = _energyService.readingStream.listen((reading) {
@@ -220,7 +222,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Keep page instances alive to preserve state
   // These are created once and reused (not recreated on every build)
   final List<Widget> _pages = const [
-    MonitorPage(), // index 1
+    MonitorPage(showAppBar: false), // index 1
     DevicePage(), // index 2
     LogsPage(), // index 3
     NotificationsPage(), // index 4
@@ -351,7 +353,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildNavItem(0, Icons.dashboard_rounded, 'Home'),
-              _buildNavItem(1, Icons.videocam_rounded, 'Monitor'),
+              _buildNavItem(1, Icons.electric_meter_rounded, 'Energy'),
               _buildNavItem(2, Icons.devices_rounded, 'Devices'),
               _buildNavItem(3, Icons.history_rounded, 'Logs'),
               _buildNavItem(4, Icons.notifications_rounded, 'Alerts'),
@@ -412,7 +414,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String _getAppBarTitle() {
     const titles = [
       'Dashboard',
-      'Camera Monitor',
+      'Energy Monitor',
       'Device Control',
       'Activity Logs',
       'Notifications',
@@ -441,13 +443,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 isWide ? _buildWideStats(isDark) : _buildNarrowStats(isDark),
                 const SizedBox(height: 20),
                 isWide
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: _buildVoltageCard(isDark)),
-                          const SizedBox(width: 16),
-                          Expanded(child: _buildCurrentCard(isDark)),
-                        ],
+                    ? IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(child: _buildVoltageCard(isDark)),
+                            const SizedBox(width: 16),
+                            Expanded(child: _buildCurrentCard(isDark)),
+                          ],
+                        ),
                       )
                     : Column(
                         children: [

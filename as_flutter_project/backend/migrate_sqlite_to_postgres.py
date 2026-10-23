@@ -56,10 +56,55 @@ def main() -> None:
             table: pg.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()["count"]
             for table in TABLES
         }
+
+        # This is a one-time importer, but users may run it again after a
+        # successful import. Recognize an already-imported source and exit
+        # without overwriting PostgreSQL preferences or device state.
+        source_users_by_id = {row["id"]: row for row in source_rows["users"]}
+        target_users_by_id = {
+            row["id"]: row
+            for row in pg.execute("SELECT id, email FROM users").fetchall()
+        }
+        users_already_imported = all(
+            row_id in target_users_by_id
+            and target_users_by_id[row_id]["email"].strip().lower()
+            == source_user["email"].strip().lower()
+            for row_id, source_user in source_users_by_id.items()
+        )
+        source_preference_user_ids = {
+            row["user_id"] for row in source_rows["user_preferences"]
+        }
+        target_preference_user_ids = {
+            row["user_id"]
+            for row in pg.execute("SELECT user_id FROM user_preferences").fetchall()
+        }
+        preferences_already_imported = source_preference_user_ids.issubset(
+            target_preference_user_ids
+        )
+        source_devices_by_id = {row["id"]: row for row in source_rows["devices"]}
+        target_devices_by_id = {
+            row["id"]: row
+            for row in pg.execute("SELECT id, user_id FROM devices").fetchall()
+        }
+        devices_already_imported = all(
+            device_id in target_devices_by_id
+            and target_devices_by_id[device_id]["user_id"] == source_device["user_id"]
+            for device_id, source_device in source_devices_by_id.items()
+        )
+        if (
+            any(counts.values())
+            and users_already_imported
+            and preferences_already_imported
+            and devices_already_imported
+        ):
+            print("SQLite records are already present in PostgreSQL; no data was changed.")
+            return
+
         if any(counts.values()):
             raise SystemExit(
-                "PostgreSQL target is not empty; import stopped without changing its data. "
-                "Use a fresh database or merge the records manually."
+                "PostgreSQL contains data that does not match a complete prior import; "
+                "import stopped without changing its data. Use a fresh database or "
+                "merge the records manually."
             )
 
         for row in source_rows["users"]:

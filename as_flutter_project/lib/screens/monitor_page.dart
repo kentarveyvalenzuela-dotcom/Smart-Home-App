@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/energy_monitor_service.dart';
+import '../services/auth_service.dart';
 
 class MonitorPage extends StatefulWidget {
-  const MonitorPage({super.key});
+  final bool showAppBar;
+
+  const MonitorPage({super.key, this.showAppBar = true});
 
   @override
   State<MonitorPage> createState() => _MonitorPageState();
@@ -17,6 +20,8 @@ class _MonitorPageState extends State<MonitorPage>
   StreamSubscription<EnergyReading>? _readingSubscription;
   EnergyReading? _reading;
   List<EnergyReading> _history = const [];
+  List<Map<String, dynamic>> _sensorHistory = const [];
+  String? _registeredDeviceId;
   bool _loadingHistory = true;
 
   @override
@@ -34,9 +39,14 @@ class _MonitorPageState extends State<MonitorPage>
 
   Future<void> _loadHistory() async {
     final history = await _energyService.getEnergyHistory(limit: 20);
+    final registration = await AuthService().ensureEnergyDeviceRegistered();
+    final sensors = await AuthService().getLatestSensorReadings();
     if (!mounted) return;
     setState(() {
       _history = history;
+      _registeredDeviceId = registration?['device_id']?.toString() ??
+          registration?['device']?['id']?.toString();
+      _sensorHistory = sensors;
       _loadingHistory = false;
     });
   }
@@ -76,19 +86,21 @@ class _MonitorPageState extends State<MonitorPage>
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Energy Monitor'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh history',
-            onPressed: () {
-              setState(() => _loadingHistory = true);
-              _loadHistory();
-            },
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
+      appBar: widget.showAppBar
+          ? AppBar(
+              title: const Text('Energy Monitor'),
+              actions: [
+                IconButton(
+                  tooltip: 'Refresh history',
+                  onPressed: () {
+                    setState(() => _loadingHistory = true);
+                    _loadHistory();
+                  },
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            )
+          : null,
       body: RefreshIndicator(
         onRefresh: _loadHistory,
         child: ListView(
@@ -161,6 +173,46 @@ class _MonitorPageState extends State<MonitorPage>
                       ),
                     ),
                   )),
+            const SizedBox(height: 24),
+            Text('Sensor history', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 8),
+            if (_registeredDeviceId != null)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.memory),
+                  title: Text('Firmware device ID: $_registeredDeviceId'),
+                  subtitle: const Text(
+                    'Set ENERGY_DEVICE_ID to this value in scripts/secrets.h, then flash the ESP32.',
+                  ),
+                ),
+              ),
+            if (_loadingHistory)
+              const Center(child: CircularProgressIndicator())
+            else if (_sensorHistory.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No sensor readings are available yet.'),
+                ),
+              )
+            else
+              ..._sensorHistory.map((entry) {
+                final timestamp = DateTime.tryParse(
+                    '${entry['timestamp'] ?? entry['recorded_at'] ?? ''}');
+                return Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.sensors),
+                    title: Text(
+                      '${entry['sensor_type'] ?? 'Sensor'}: ${entry['value'] ?? ''} ${entry['unit'] ?? ''}',
+                    ),
+                    subtitle: Text(
+                      timestamp == null
+                          ? 'Device ${entry['device_id'] ?? ''}'
+                          : '${timestamp.toLocal()} · Device ${entry['device_id'] ?? ''}',
+                    ),
+                  ),
+                );
+              }),
           ],
         ),
       ),

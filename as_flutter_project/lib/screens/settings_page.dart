@@ -42,9 +42,18 @@ class _SettingsPageState extends State<SettingsPage> {
       final prefs = await _authService.getUserPreferences();
       final thresholds = await _authService.getSensorThresholds();
       if (thresholds != null) {
-        await ConfigService().setVoltageMin((thresholds['voltage_min'] as num).toDouble());
-        await ConfigService().setVoltageMax((thresholds['voltage_max'] as num).toDouble());
-        await ConfigService().setAmperageMax((thresholds['amperage_max'] as num).toDouble());
+        if (thresholds['configured'] == true) {
+          await ConfigService().setVoltageMin((thresholds['voltage_min'] as num).toDouble());
+          await ConfigService().setVoltageMax((thresholds['voltage_max'] as num).toDouble());
+          await ConfigService().setAmperageMax((thresholds['amperage_max'] as num).toDouble());
+        } else {
+          // Preserve thresholds that were saved locally before server support existed.
+          await _authService.updateSensorThresholds(
+            voltageMin: ConfigService().voltageMin,
+            voltageMax: ConfigService().voltageMax,
+            amperageMax: ConfigService().amperageMax,
+          );
+        }
       }
       final backendUrl = ConfigService().backendUrl;
 

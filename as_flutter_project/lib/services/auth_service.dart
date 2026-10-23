@@ -13,7 +13,24 @@ const _googleClientId = String.fromEnvironment(
 );
 
 class AuthService {
+  static final AuthService _instance = AuthService._internal();
+
+  factory AuthService() => _instance;
+
+  AuthService._internal();
+
   String get _baseUrl => ConfigService().backendUrl;
+
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId: kIsWeb && _googleClientId.isNotEmpty ? _googleClientId : null,
+    serverClientId: kIsWeb ? null : _googleClientId,
+    scopes: ['email', 'profile'],
+  );
+
+  GoogleSignIn get googleSignIn => _googleSignIn;
+
+  Stream<GoogleSignInAccount?> get googleSignInEvents =>
+      _googleSignIn.onCurrentUserChanged;
 
   String _normalizeNetworkError(Object error) {
     final message = error.toString();
@@ -352,21 +369,28 @@ class AuthService {
   // Exchange a Google OAuth identity token for an application session.
   Future<Map<String, dynamic>?> signInWithGoogle() async {
     try {
-      if (_googleClientId.isEmpty) {
+      if (_googleClientId.isEmpty && !kIsWeb) {
         return {
           'success': false,
           'error':
               'Google OAuth client ID is missing. Build with --dart-define=GOOGLE_CLIENT_ID=<Web client ID>.',
         };
       }
-      final account = await GoogleSignIn(
-        clientId: kIsWeb ? _googleClientId : null,
-        serverClientId: _googleClientId,
-        scopes: ['email', 'profile'],
-      ).signIn();
+      final account = await _googleSignIn.signIn();
       if (account == null) {
         return {'success': false, 'error': 'Google sign-in was cancelled'};
       }
+      return await signInWithGoogleAccount(account);
+    } catch (e) {
+      debugPrint('Google sign-in error: $e');
+      return {'success': false, 'error': _normalizeNetworkError(e)};
+    }
+  }
+
+  /// Exchanges a Google Identity Services credential for an app session.
+  Future<Map<String, dynamic>?> signInWithGoogleAccount(
+      GoogleSignInAccount account) async {
+    try {
       final idToken = (await account.authentication).idToken;
       if (idToken == null) {
         return {'success': false, 'error': 'Google did not return an ID token'};

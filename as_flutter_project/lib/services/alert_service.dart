@@ -143,8 +143,12 @@ class AlertService extends ApiService {
     return getRequest(
       '/alerts/list',
       parser: (data) {
-        if (data == null || data is! List) return [];
-        return (data)
+        final rows = data is List
+            ? data
+            : data is Map && data['alerts'] is List
+                ? data['alerts'] as List
+                : const <dynamic>[];
+        return rows
             .map((item) => Alert.fromJson(item as Map<String, dynamic>))
             .toList();
       },

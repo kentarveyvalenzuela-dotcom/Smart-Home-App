@@ -5,6 +5,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'auth_service.dart';
 import 'config_service.dart';
 
 const _googleClientId = String.fromEnvironment(
@@ -19,16 +20,12 @@ class GoogleSignIn2FAService {
   GoogleSignIn2FAService._internal();
 
   String get backendUrl => ConfigService().backendUrl;
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: kIsWeb ? _googleClientId : null,
-    serverClientId: _googleClientId,
-    scopes: ['email', 'profile'],
-  );
+  GoogleSignIn get _googleSignIn => AuthService().googleSignIn;
   bool get isSignedIn => false;
 
   Future<Map<String, dynamic>> signInWithGoogle() async {
     try {
-      if (_googleClientId.isEmpty) {
+      if (_googleClientId.isEmpty && !kIsWeb) {
         return {'success': false, 'message': 'Google OAuth client ID is missing. Build with --dart-define=GOOGLE_CLIENT_ID=<Web client ID>.'};
       }
       final account = await _googleSignIn.signIn();

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "872440543207",
+    "project_id": "smart-home-app-f98a3",
+    "storage_bucket": "smart-home-app-f98a3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:872440543207:android:c588b363cdd0a1f55aef42",
+        "android_client_info": {
+          "package_name": "com.astralminds"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpC31uu_PKY-Gnp98R165dV0IAlRWHjWo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

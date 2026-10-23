@@ -84,7 +84,7 @@
 | **Device Service** | `device_service.dart` | Device CRUD Operations | ✅ Complete |
 | **Config Service** | `config_service.dart` | App Configuration | ✅ Complete |
 | **Energy Monitor** | `energy_monitor_service.dart` | Power Consumption | ✅ Complete |
-| **Notification** | `notification_service.dart` | Push/Local Notifications | ✅ Complete |
+| **Notification** | `notification_service.dart` | PostgreSQL polling and Firebase Cloud Messaging | ✅ Implemented; delivery requires Firebase project credentials and device token |
 | **Sync Service** | `sync_service.dart` | Backend Synchronization | ✅ Complete |
 | **Connectivity** | `connectivity_service.dart` | Network Status | ✅ Complete |
 | **Alert Service** | `alert_service.dart` | Alert Management | ✅ Complete |
@@ -106,9 +106,9 @@
 | **2FA** | `/auth/verify-2fa`, `/auth/enable-2fa` | Two-Factor Auth | ✅ Complete |
 | **Password Reset** | `/auth/password-reset/*` | Forgot Password | ✅ Complete |
 | **Devices** | `/devices/*` | CRUD, Control | ✅ Complete |
-| **Sensors** | `/sensors/*` | Energy Data | ✅ Complete |
-| **Logs** | `/logs/*` | Activity Logs | ✅ Complete |
-| **Alerts** | `/alerts/*` | Alert Management | ✅ Complete |
+| **Sensors** | `/ingest/sensors`, `/sensors/*` | Firmware ingestion and authenticated history | ✅ Implemented; requires configured ingest key and registered device ID |
+| **Logs** | `/logs/*` and MQTT state listener | PostgreSQL command, acknowledgement, and state-change history | ✅ Implemented; requires MQTT listener configuration |
+| **Alerts** | `/alerts/*`, sensor ingestion threshold checks | Voltage/current alerts, recovery, resolve | ✅ Implemented; thresholds are account-backed |
 | **Appliances** | `/appliances/*` | Appliance Presets | ✅ Complete |
 | **Health** | `/health` | System Status | ✅ Complete |
 

@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import os
 import secrets
 import smtplib
@@ -18,7 +19,7 @@ import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
 
-from fastapi import Depends, FastAPI, HTTPException, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -26,6 +27,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 import paho.mqtt.client as mqtt
 from psycopg.types.json import Jsonb
+
+logger = logging.getLogger(__name__)
 
 try:
     import firebase_admin
@@ -43,6 +46,8 @@ except ImportError:  # Push delivery is optional until Firebase Admin is configu
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Load backend/.env first, then fill unset values from the project .env.
+# .env is located in:
+# as_flutter_project/.env
 #
 # main.py is located in:
 # as_flutter_project/backend/app/main.py
@@ -51,6 +56,12 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(os.path.dirname(APP_DIR))
 load_dotenv(os.path.join(PROJECT_DIR, "backend", ".env"))
 load_dotenv(os.path.join(PROJECT_DIR, ".env"), override=False)
+ENV_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(APP_DIR)),
+    ".env",
+)
+
+load_dotenv(ENV_PATH)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -77,6 +88,25 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 app = FastAPI(
     title="Smart Home API",
     version="1.0.0",
+)
+
+# Flutter Web calls the API from a different origin. Keep the local origins
+# available for development and allow deployments to provide their own list.
+_default_cors_origins = (
+    "http://localhost:8080,http://127.0.0.1:8080,"
+    "http://localhost:5000,http://127.0.0.1:5000"
+)
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", _default_cors_origins).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 security = HTTPBearer()
@@ -113,6 +143,7 @@ class RegisterResponse(BaseModel):
     success: bool
     message: str
     user: UserOut
+    requires_email_verification: bool = False
 
 
 class HealthResponse(BaseModel):
@@ -176,6 +207,47 @@ class NotificationRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SensorReadingRequest(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=128)
+    sensor_type: str = Field(..., min_length=1, max_length=80)
+    value: float
+    unit: str = Field(default="", max_length=32)
+    quality: str = Field(default="good", max_length=32)
+
+
+class EnergyReadingRequest(BaseModel):
+    voltage: float = Field(..., ge=0)
+    current: float = Field(..., ge=0)
+    power: float = Field(..., ge=0)
+    energy: float = Field(..., ge=0)
+    timestamp: datetime | None = None
+    channels: dict[str, float] = Field(default_factory=dict)
+
+
+class DeviceSensorItem(BaseModel):
+    sensor_type: str = Field(..., min_length=1, max_length=80)
+    value: float
+    unit: str = Field(default="", max_length=32)
+
+
+class DeviceSensorBatch(BaseModel):
+    readings: list[DeviceSensorItem] = Field(..., min_length=1, max_length=32)
+
+
+class AlertCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    message: str = Field(..., min_length=1, max_length=2000)
+    severity: str = "low"
+    source: str = "system"
+    device_id: str | None = None
+
+
+class SensorThresholdsRequest(BaseModel):
+    voltage_min: float = Field(..., ge=0)
+    voltage_max: float = Field(..., gt=0)
+    amperage_max: float = Field(..., gt=0)
+
+
 class PushTokenRequest(BaseModel):
     token: str = Field(..., min_length=20, max_length=4096)
     platform: str = Field(default="unknown", max_length=32)
@@ -203,14 +275,56 @@ class EmailVerificationRequest(BaseModel):
 # TEMPORARY PASSWORD RESET TOKENS
 # ============================================================
 
+RESET_TOKENS: dict[str, dict[str, Any]] = {}
+
+
 # ============================================================
 # PASSWORD
 # ============================================================
 
+_SCRYPT_N = 1 << 15
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+_SCRYPT_DKLEN = 32
+
+
 def _hash_password(password: str) -> str:
-    return hashlib.sha256(
-        password.encode("utf-8")
-    ).hexdigest()
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(
+        password.encode("utf-8"), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R,
+        p=_SCRYPT_P, maxmem=64 * 1024 * 1024, dklen=_SCRYPT_DKLEN,
+    )
+    return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt.hex()}${digest.hex()}"
+
+
+def _is_legacy_password_hash(stored_hash: str) -> bool:
+    return len(stored_hash) == 64 and all(char in "0123456789abcdefABCDEF" for char in stored_hash)
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    """Verify current scrypt hashes and legacy unsalted SHA-256 hashes."""
+    if _is_legacy_password_hash(stored_hash):
+        legacy_digest = hashlib.sha256(password.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(legacy_digest, stored_hash.lower())
+
+    try:
+        algorithm, n_text, r_text, p_text, salt_hex, digest_hex = stored_hash.split("$")
+        if algorithm != "scrypt":
+            return False
+        n, r, p = int(n_text), int(r_text), int(p_text)
+        if (n, r, p) != (_SCRYPT_N, _SCRYPT_R, _SCRYPT_P):
+            return False
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(digest_hex)
+        if len(salt) != 16 or len(expected) != _SCRYPT_DKLEN:
+            return False
+        actual = hashlib.scrypt(
+            password.encode("utf-8"), salt=salt, n=n, r=r, p=p,
+            maxmem=64 * 1024 * 1024, dklen=_SCRYPT_DKLEN,
+        )
+        return hmac.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
 
 
 # ============================================================
@@ -229,6 +343,7 @@ def _send_push_notification(user_id: int, title: str, message: str,
     """Best-effort FCM delivery; notification records remain available in-app."""
     service_account = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
     if firebase_admin is None or not service_account:
+        logger.warning("FCM is not configured: Firebase Admin SDK or service-account credentials are missing")
         return
     try:
         if not firebase_admin._apps:
@@ -262,8 +377,11 @@ def _send_push_notification(user_id: int, title: str, message: str,
                         cleanup.commit()
                     finally:
                         cleanup.close()
+                else:
+                    logger.warning("FCM delivery failed for a registered device token: %s", exc)
     except Exception:
         # Push service configuration/outages must not fail notification persistence.
+        logger.exception("FCM delivery is unavailable; in-app notifications remain stored")
         return
 
 
@@ -382,6 +500,36 @@ def _verify_google_identity_token(token: str) -> dict[str, Any]:
     except HTTPException:
         raise
     except Exception as exc:
+        audience_matches = False
+        token_expired: bool | None = None
+        try:
+            token_parts = token.split(".")
+            if len(token_parts) == 3:
+                unverified_claims = json.loads(_decode_base64(token_parts[1]))
+                aud = unverified_claims.get("aud")
+                audience_matches = (
+                    client_id == aud
+                    or isinstance(aud, list) and client_id in aud
+                )
+                exp = unverified_claims.get("exp")
+                if isinstance(exp, (int, float)):
+                    token_expired = exp <= time.time()
+        except Exception:
+            pass
+        logger.warning(
+            "Google ID token verification failed: exception=%s audience_matches=%s expired=%s",
+            type(exc).__name__, audience_matches, token_expired,
+        )
+        if not audience_matches:
+            raise HTTPException(
+                status_code=401,
+                detail="Google token audience does not match the backend Web Client ID",
+            ) from exc
+        if token_expired:
+            raise HTTPException(
+                status_code=401,
+                detail="Google ID token expired; try signing in again",
+            ) from exc
         raise HTTPException(status_code=401, detail="Google ID token is invalid or expired") from exc
     if not claims.get("sub") or not claims.get("email") or claims.get("email_verified") not in (True, "true"):
         raise HTTPException(status_code=401, detail="Google account must provide a verified email")
@@ -634,6 +782,7 @@ async def health() -> HealthResponse:
 
 @app.post(
     "/auth/register",
+    response_model=RegisterResponse,
 )
 async def register(
     payload: RegisterRequest,
@@ -651,7 +800,15 @@ async def register(
     existing = _get_user_by_email(email)
 
     if existing is not None:
-        if not existing["email_verified"] and existing["password_hash"] == _hash_password(payload.password):
+        if not existing["email_verified"] and _verify_password(payload.password, existing["password_hash"]):
+            if _is_legacy_password_hash(existing["password_hash"]):
+                conn = _create_db_connection()
+                try:
+                    conn.execute("UPDATE users SET password_hash = %s WHERE id = %s",
+                                 (_hash_password(payload.password), existing["id"]))
+                    conn.commit()
+                finally:
+                    conn.close()
             await asyncio.to_thread(_issue_email_code, existing["id"], email, "email_verification")
             return {"success": True, "requires_email_verification": True,
                     "message": "A new email verification code was sent.",
@@ -712,9 +869,7 @@ async def register(
 # LOGIN
 # ============================================================
 
-@app.post(
-    "/auth/login",
-)
+@app.post("/auth/login")
 async def login(
     payload: LoginRequest,
 ) -> dict[str, Any]:
@@ -729,13 +884,21 @@ async def login(
             detail="Invalid email or password",
         )
 
-    if user_row["password_hash"] != _hash_password(
-        payload.password
-    ):
+    if not _verify_password(payload.password, user_row["password_hash"]):
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password",
         )
+
+    # Upgrade an existing unsalted SHA-256 hash transparently after successful auth.
+    if _is_legacy_password_hash(user_row["password_hash"]):
+        conn = _create_db_connection()
+        try:
+            conn.execute("UPDATE users SET password_hash = %s WHERE id = %s",
+                         (_hash_password(payload.password), user_row["id"]))
+            conn.commit()
+        finally:
+            conn.close()
 
     if not user_row["email_verified"]:
         await asyncio.to_thread(_issue_email_code, user_row["id"], user_row["email"], "email_verification")
@@ -759,7 +922,7 @@ async def login(
             email=user_row["email"],
             name=user_row["name"],
         ),
-    )
+    ).model_dump()
 
 
 @app.post("/auth/google-signin")
@@ -1004,6 +1167,7 @@ async def request_password_reset(
         "message": (
             "If the email exists, a reset code has been sent."
         ),
+        "token": token,
     }
 
 
@@ -1057,6 +1221,10 @@ async def confirm_password_reset(
     token = (
         payload.token or ""
     ).strip()
+
+    email = (
+        payload.email or ""
+    ).strip().lower()
 
     new_password = (
         payload.new_password or ""
@@ -1253,9 +1421,7 @@ async def change_password(
             detail="User not found",
         )
 
-    if user["password_hash"] != _hash_password(
-        payload.current_password
-    ):
+    if not _verify_password(payload.current_password, user["password_hash"]):
         raise HTTPException(
             status_code=400,
             detail="Current password is incorrect",
@@ -2350,6 +2516,664 @@ async def clear_old_logs(days_old: int = 90,
     try:
         cursor = conn.execute(
             "DELETE FROM activity_logs WHERE user_id = %s AND created_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 day')",
+            (current_user.id, max(1, days_old)),
+        )
+        conn.commit()
+        return {"success": True, "deleted": cursor.rowcount}
+    finally:
+        conn.close()
+
+
+# ============================================================
+# ENERGY, SENSOR HISTORY, THRESHOLDS, AND ALERTS
+# ============================================================
+
+def _require_device_ingest_key(provided_key: str | None) -> None:
+    configured_key = os.getenv("DEVICE_INGEST_API_KEY", "").strip()
+    if not configured_key:
+        raise HTTPException(status_code=503, detail="Device ingestion is not configured")
+    if not provided_key or not hmac.compare_digest(provided_key, configured_key):
+        raise HTTPException(status_code=401, detail="Invalid device API key")
+
+
+def _device_owner(conn: Any, device_id: str) -> tuple[int, str]:
+    row = conn.execute(
+        "SELECT id, user_id FROM devices WHERE id::text = %s LIMIT 1",
+        (device_id.strip(),),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Device is not registered")
+    return int(row["user_id"]), str(row["id"])
+
+
+@app.post("/ingest/energy")
+async def ingest_device_energy(
+    payload: EnergyReadingRequest,
+    device_id: str,
+    x_device_api_key: str | None = Header(default=None, alias="X-Device-API-Key"),
+) -> dict[str, Any]:
+    _require_device_ingest_key(x_device_api_key)
+    conn = _create_db_connection()
+    pending_pushes: list[dict[str, Any]] = []
+    try:
+        user_id, canonical_device_id = _device_owner(conn, device_id)
+        timestamp = payload.timestamp or datetime.now(timezone.utc)
+        row = conn.execute(
+            """INSERT INTO energy_readings (user_id, voltage, current, power, energy, channels, recorded_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)
+               RETURNING voltage, current, power, energy, channels, recorded_at AS timestamp""",
+            (user_id, payload.voltage, payload.current, payload.power, payload.energy,
+             Jsonb(payload.channels), timestamp),
+        ).fetchone()
+        for sensor_type, value, unit in (("voltage", payload.voltage, "V"),
+                                         ("current", payload.current, "A"),
+                                         ("power", payload.power, "W"),
+                                         ("energy", payload.energy, "kWh")):
+            conn.execute(
+                """INSERT INTO sensor_readings (user_id, device_id, sensor_type, value, unit)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (user_id, canonical_device_id, sensor_type, value, unit),
+            )
+            push = _evaluate_sensor_thresholds(conn, user_id, canonical_device_id, sensor_type, value)
+            if push:
+                pending_pushes.append(push)
+        conn.execute("UPDATE devices SET is_online = TRUE, last_seen = CURRENT_TIMESTAMP WHERE id = %s",
+                     (canonical_device_id,))
+        conn.commit()
+        result = dict(row)
+    finally:
+        conn.close()
+    for push in pending_pushes:
+        await asyncio.to_thread(_send_push_notification, user_id,
+                                push["title"], push["message"], push["metadata"])
+    return {"success": True, "device_id": canonical_device_id, "reading": result}
+
+
+@app.post("/ingest/sensors")
+async def ingest_device_sensors(
+    payload: DeviceSensorBatch,
+    device_id: str,
+    x_device_api_key: str | None = Header(default=None, alias="X-Device-API-Key"),
+) -> dict[str, Any]:
+    _require_device_ingest_key(x_device_api_key)
+    conn = _create_db_connection()
+    pending_pushes: list[dict[str, Any]] = []
+    try:
+        user_id, canonical_device_id = _device_owner(conn, device_id)
+        for reading in payload.readings:
+            sensor_type = reading.sensor_type.strip().lower()
+            conn.execute(
+                """INSERT INTO sensor_readings (user_id, device_id, sensor_type, value, unit)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (user_id, canonical_device_id, sensor_type, reading.value, reading.unit),
+            )
+            push = _evaluate_sensor_thresholds(conn, user_id, canonical_device_id,
+                                               sensor_type, reading.value)
+            if push:
+                pending_pushes.append(push)
+        conn.execute("UPDATE devices SET is_online = TRUE, last_seen = CURRENT_TIMESTAMP WHERE id = %s",
+                     (canonical_device_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    for push in pending_pushes:
+        await asyncio.to_thread(_send_push_notification, user_id,
+                                push["title"], push["message"], push["metadata"])
+    return {"success": True, "device_id": canonical_device_id,
+            "stored": len(payload.readings)}
+
+def _owned_device_id(conn: Any, user_id: int, selector: str) -> str:
+    row = conn.execute(
+        """SELECT id FROM devices WHERE user_id = %s
+           AND (id::text = %s OR mqtt_client_id = %s) LIMIT 1""",
+        (user_id, selector.strip(), selector.strip()),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return str(row["id"])
+
+
+def _sensor_json(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]), "device_id": str(row["device_id"] or ""),
+        "sensor_type": row["sensor_type"], "value": row["value"],
+        "unit": row["unit"], "quality": row["quality"],
+        "timestamp": row["recorded_at"].isoformat(), "metadata": {},
+    }
+
+
+def _alert_json(row: dict[str, Any]) -> dict[str, Any]:
+    resolved = bool(row["resolved"])
+    return {
+        "id": str(row["id"]), "title": row["title"], "message": row["message"],
+        "severity": row["severity"], "source": row["source"],
+        "device_id": str(row["device_id"]) if row["device_id"] is not None else None,
+        "is_read": bool(row["is_read"]), "is_dismissed": resolved,
+        "resolved": resolved, "is_resolved": resolved,
+        "created_at": row["created_at"].isoformat(), "acknowledged_at": None,
+        "metadata": row["metadata"] or {},
+    }
+
+
+def _insert_alert(conn: Any, user_id: int, *, title: str, message: str,
+                  severity: str, source: str, device_id: str | None,
+                  metadata: dict[str, Any]) -> dict[str, Any]:
+    return conn.execute(
+        """INSERT INTO alerts (user_id, title, message, severity, source, device_id, metadata)
+           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+        (user_id, title, message, severity, source, device_id, Jsonb(metadata)),
+    ).fetchone()
+
+
+def _insert_alert_notification(conn: Any, user_id: int, row: dict[str, Any]) -> None:
+    conn.execute(
+        """INSERT INTO notifications (user_id, type, title, message, metadata)
+           VALUES (%s, 'alert', %s, %s, %s)""",
+        (user_id, row["title"], row["message"],
+         Jsonb({"alert_id": str(row["id"]), "severity": row["severity"], "source": row["source"]})),
+    )
+
+
+def _evaluate_sensor_thresholds(conn: Any, user_id: int, device_id: str,
+                                sensor_type: str, value: float) -> dict[str, Any] | None:
+    kind = sensor_type.strip().lower()
+    prefs = conn.execute(
+        """SELECT voltage_min, voltage_max, amperage_max, sensor_thresholds_configured
+           FROM user_preferences WHERE user_id = %s""", (user_id,),
+    ).fetchone()
+    if not prefs or not prefs["sensor_thresholds_configured"]:
+        return None
+
+    violation: tuple[str, str, str] | None = None
+    if kind in {"voltage", "voltage_v", "volts"}:
+        if value < prefs["voltage_min"]:
+            violation = ("Voltage below limit", f"Voltage {value:g} V is below the minimum {prefs['voltage_min']:g} V.", "high")
+        elif value > prefs["voltage_max"]:
+            violation = ("Voltage above limit", f"Voltage {value:g} V exceeds the maximum {prefs['voltage_max']:g} V.", "high")
+    elif kind in {"current", "amperage", "current_a", "amps"} and value > prefs["amperage_max"]:
+        severity = "critical" if value > prefs["amperage_max"] * 1.2 else "high"
+        violation = ("Current above limit", f"Current {value:g} A exceeds the maximum {prefs['amperage_max']:g} A.", severity)
+
+    if violation is None:
+        conn.execute(
+            """UPDATE alerts SET resolved = TRUE, is_read = TRUE
+               WHERE user_id = %s AND source = 'sensor' AND device_id = %s
+                 AND metadata->>'sensor_type' = %s AND resolved = FALSE""",
+            (user_id, device_id, kind),
+        )
+        return None
+
+    open_alert = conn.execute(
+        """SELECT id FROM alerts WHERE user_id = %s AND source = 'sensor' AND device_id = %s
+           AND metadata->>'sensor_type' = %s AND resolved = FALSE LIMIT 1""",
+        (user_id, device_id, kind),
+    ).fetchone()
+    if open_alert:
+        return None
+    title, message, severity = violation
+    row = _insert_alert(
+        conn, user_id, title=title, message=message, severity=severity,
+        source="sensor", device_id=device_id,
+        metadata={"sensor_type": kind, "value": value},
+    )
+    _insert_alert_notification(conn, user_id, row)
+    return {"title": title, "message": message,
+            "metadata": {"alert_id": str(row["id"]), "severity": severity, "source": "sensor"}}
+
+
+@app.post("/devices/register-energy")
+async def register_energy_device(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """SELECT id, name, type, status, is_online, mqtt_client_id
+               FROM devices WHERE user_id = %s AND lower(name) = 'energy monitor'
+               ORDER BY id LIMIT 1""", (current_user.id,),
+        ).fetchone()
+        if row is None:
+            row = conn.execute(
+                """INSERT INTO devices (user_id, name, type, status, is_online)
+                   VALUES (%s, 'Energy Monitor', 'energy_monitor', 'online', TRUE)
+                   RETURNING id, name, type, status, is_online, mqtt_client_id""",
+                (current_user.id,),
+            ).fetchone()
+            conn.commit()
+        return {"success": True, "device": dict(row), "device_id": str(row["id"])}
+    finally:
+        conn.close()
+
+
+@app.get("/energy/current")
+async def get_current_energy(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """SELECT voltage, current, power, energy, channels, recorded_at AS timestamp
+               FROM energy_readings WHERE user_id = %s ORDER BY recorded_at DESC, id DESC LIMIT 1""",
+            (current_user.id,),
+        ).fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+
+@app.get("/energy/history")
+async def get_energy_history(limit: int = 100, start_time: datetime | None = None,
+                             end_time: datetime | None = None,
+                             current_user: UserOut = Depends(get_current_user)) -> list[dict[str, Any]]:
+    conditions = ["user_id = %s"]
+    params: list[Any] = [current_user.id]
+    if start_time:
+        conditions.append("recorded_at >= %s")
+        params.append(start_time)
+    if end_time:
+        conditions.append("recorded_at <= %s")
+        params.append(end_time)
+    params.append(max(1, min(limit, 1000)))
+    conn = _create_db_connection()
+    try:
+        rows = conn.execute(
+            f"""SELECT voltage, current, power, energy, channels, recorded_at AS timestamp
+                FROM energy_readings WHERE {' AND '.join(conditions)}
+                ORDER BY recorded_at DESC, id DESC LIMIT %s""", params,
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+@app.post("/energy/readings")
+async def create_energy_reading(payload: EnergyReadingRequest,
+                                current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    timestamp = payload.timestamp or datetime.now(timezone.utc)
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """INSERT INTO energy_readings (user_id, voltage, current, power, energy, channels, recorded_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)
+               RETURNING voltage, current, power, energy, channels, recorded_at AS timestamp""",
+            (current_user.id, payload.voltage, payload.current, payload.power,
+             payload.energy, Jsonb(payload.channels), timestamp),
+        ).fetchone()
+        device = conn.execute(
+            """SELECT id FROM devices WHERE user_id = %s AND lower(name) = 'energy monitor'
+               ORDER BY id LIMIT 1""", (current_user.id,),
+        ).fetchone()
+        device_id = str(device["id"]) if device else None
+        pending_pushes = []
+        if device_id is not None:
+            for sensor_type, value, unit in (("voltage", payload.voltage, "V"), ("current", payload.current, "A")):
+                conn.execute(
+                    """INSERT INTO sensor_readings (user_id, device_id, sensor_type, value, unit)
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (current_user.id, device_id, sensor_type, value, unit),
+                )
+                push = _evaluate_sensor_thresholds(conn, current_user.id, device_id, sensor_type, value)
+                if push:
+                    pending_pushes.append(push)
+        conn.commit()
+        result = dict(row)
+    finally:
+        conn.close()
+    for push in pending_pushes:
+        await asyncio.to_thread(_send_push_notification, current_user.id,
+                                push["title"], push["message"], push["metadata"])
+    return result
+
+
+@app.post("/sensors/create")
+@app.post("/sensors/data")
+async def create_sensor_reading(payload: SensorReadingRequest,
+                                current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    kind = payload.sensor_type.strip().lower()
+    if not kind:
+        raise HTTPException(status_code=400, detail="Sensor type is required")
+    conn = _create_db_connection()
+    pending_push = None
+    try:
+        device_id = _owned_device_id(conn, current_user.id, payload.device_id)
+        row = conn.execute(
+            """INSERT INTO sensor_readings (user_id, device_id, sensor_type, value, unit, quality)
+               VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
+            (current_user.id, device_id, kind, payload.value, payload.unit, payload.quality),
+        ).fetchone()
+        pending_push = _evaluate_sensor_thresholds(conn, current_user.id, device_id, kind, payload.value)
+        conn.commit()
+        result = _sensor_json(row)
+        # The legacy AuthService expects a status message, while SensorService
+        # parses the reading fields. Returning both keeps the shared route
+        # compatible with both callers.
+        result.update({"success": True, "message": "Sensor reading stored"})
+    finally:
+        conn.close()
+    if pending_push:
+        await asyncio.to_thread(_send_push_notification, current_user.id,
+                                pending_push["title"], pending_push["message"], pending_push["metadata"])
+    return result
+
+
+@app.get("/sensors/device/{device_id}/latest")
+async def get_latest_sensor_reading(device_id: str,
+                                    current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        canonical_id = _owned_device_id(conn, current_user.id, device_id)
+        row = conn.execute(
+            """SELECT * FROM sensor_readings WHERE user_id = %s AND device_id = %s
+               ORDER BY recorded_at DESC, id DESC LIMIT 1""", (current_user.id, canonical_id),
+        ).fetchone()
+        return _sensor_json(row) if row else {}
+    finally:
+        conn.close()
+
+
+@app.get("/sensors/device/{device_id}")
+async def get_device_sensor_readings(device_id: str, sensor_type: str | None = None,
+                                     start_time: datetime | None = None,
+                                     end_time: datetime | None = None, limit: int = 100,
+                                     current_user: UserOut = Depends(get_current_user)) -> list[dict[str, Any]]:
+    conn = _create_db_connection()
+    try:
+        canonical_id = _owned_device_id(conn, current_user.id, device_id)
+        conditions = ["user_id = %s", "device_id = %s"]
+        params: list[Any] = [current_user.id, canonical_id]
+        if sensor_type:
+            conditions.append("sensor_type = %s")
+            params.append(sensor_type.strip().lower())
+        if start_time:
+            conditions.append("recorded_at >= %s")
+            params.append(start_time)
+        if end_time:
+            conditions.append("recorded_at <= %s")
+            params.append(end_time)
+        params.append(max(1, min(limit, 1000)))
+        rows = conn.execute(
+            f"""SELECT * FROM sensor_readings WHERE {' AND '.join(conditions)}
+                ORDER BY recorded_at DESC, id DESC LIMIT %s""", params,
+        ).fetchall()
+        return [_sensor_json(row) for row in rows]
+    finally:
+        conn.close()
+
+
+@app.get("/sensors/all")
+async def get_all_sensor_readings(limit: int = 50,
+                                 current_user: UserOut = Depends(get_current_user)) -> list[dict[str, Any]]:
+    conn = _create_db_connection()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM sensor_readings WHERE user_id = %s
+               ORDER BY recorded_at DESC, id DESC LIMIT %s""",
+            (current_user.id, max(1, min(limit, 1000))),
+        ).fetchall()
+        return [_sensor_json(row) for row in rows]
+    finally:
+        conn.close()
+
+
+@app.get("/sensors/statistics/{device_id}")
+async def get_sensor_statistics(device_id: str, sensor_type: str | None = None,
+                                days_back: int = 7,
+                                current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        canonical_id = _owned_device_id(conn, current_user.id, device_id)
+        params: list[Any] = [current_user.id, canonical_id, max(1, min(days_back, 3650))]
+        condition = ""
+        if sensor_type:
+            condition = " AND sensor_type = %s"
+            params.append(sensor_type.strip().lower())
+        row = conn.execute(
+            f"""SELECT MIN(value) AS min, MAX(value) AS max, AVG(value) AS average,
+                       COUNT(*) AS reading_count, MIN(recorded_at) AS start_time,
+                       MAX(recorded_at) AS end_time
+                FROM sensor_readings WHERE user_id = %s AND device_id = %s
+                  AND recorded_at >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 day'){condition}""", params,
+        ).fetchone()
+        now = datetime.now(timezone.utc)
+        return {key: (value if value is not None else 0) for key, value in {
+            "min": row["min"], "max": row["max"], "average": row["average"],
+            "reading_count": row["reading_count"],
+            "start_time": row["start_time"] or now, "end_time": row["end_time"] or now,
+        }.items()}
+    finally:
+        conn.close()
+
+
+@app.get("/sensors/summary")
+async def get_sensor_summary(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """SELECT COUNT(*) AS total_readings,
+                       COUNT(DISTINCT sensor_type) AS active_sensors,
+                       COUNT(*) FILTER (WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS readings_24h,
+                       MAX(recorded_at) AS last_reading_at
+               FROM sensor_readings WHERE user_id = %s""", (current_user.id,),
+        ).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+@app.get("/settings/sensor-thresholds")
+async def get_sensor_thresholds(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """SELECT voltage_min, voltage_max, amperage_max, sensor_thresholds_configured
+               FROM user_preferences WHERE user_id = %s""", (current_user.id,),
+        ).fetchone()
+        if row is None:
+            return {"voltage_min": 200, "voltage_max": 240, "amperage_max": 30, "configured": False}
+        return {"voltage_min": row["voltage_min"], "voltage_max": row["voltage_max"],
+                "amperage_max": row["amperage_max"], "configured": bool(row["sensor_thresholds_configured"])}
+    finally:
+        conn.close()
+
+
+@app.put("/settings/sensor-thresholds")
+async def update_sensor_thresholds(payload: SensorThresholdsRequest,
+                                   current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    if payload.voltage_min >= payload.voltage_max:
+        raise HTTPException(status_code=400, detail="Minimum voltage must be lower than maximum voltage")
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """INSERT INTO user_preferences
+               (user_id, voltage_min, voltage_max, amperage_max, sensor_thresholds_configured)
+               VALUES (%s, %s, %s, %s, TRUE)
+               ON CONFLICT (user_id) DO UPDATE SET voltage_min = EXCLUDED.voltage_min,
+                   voltage_max = EXCLUDED.voltage_max, amperage_max = EXCLUDED.amperage_max,
+                   sensor_thresholds_configured = TRUE
+               RETURNING voltage_min, voltage_max, amperage_max, sensor_thresholds_configured""",
+            (current_user.id, payload.voltage_min, payload.voltage_max, payload.amperage_max),
+        ).fetchone()
+        conn.commit()
+        return {"voltage_min": row["voltage_min"], "voltage_max": row["voltage_max"],
+                "amperage_max": row["amperage_max"], "configured": bool(row["sensor_thresholds_configured"])}
+    finally:
+        conn.close()
+
+
+@app.post("/alerts/create")
+async def create_alert(payload: AlertCreateRequest,
+                       current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    severity = payload.severity.strip().lower()
+    if severity not in {"low", "medium", "high", "critical"}:
+        raise HTTPException(status_code=400, detail="Invalid alert severity")
+    conn = _create_db_connection()
+    try:
+        device_id = _owned_device_id(conn, current_user.id, payload.device_id) if payload.device_id else None
+        row = _insert_alert(conn, current_user.id, title=payload.title, message=payload.message,
+                            severity=severity, source=payload.source.strip().lower() or "system",
+                            device_id=device_id, metadata={})
+        _insert_alert_notification(conn, current_user.id, row)
+        conn.commit()
+    finally:
+        conn.close()
+    metadata = {"alert_id": str(row["id"]), "severity": severity, "source": row["source"]}
+    await asyncio.to_thread(_send_push_notification, current_user.id, row["title"], row["message"], metadata)
+    return _alert_json(row)
+
+
+def _alert_filters(user_id: int, *, resolved: bool | None, severity: str | None,
+                   device_id: str | None, hours: int | None, unread_only: bool = False) -> tuple[str, list[Any]]:
+    conditions = ["user_id = %s"]
+    params: list[Any] = [user_id]
+    if resolved is not None:
+        conditions.append("resolved = %s")
+        params.append(resolved)
+    if severity:
+        conditions.append("severity = %s")
+        params.append(severity.strip().lower())
+    if device_id:
+        conditions.append("device_id = %s")
+        params.append(device_id)
+    if hours is not None:
+        conditions.append("created_at >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 hour')")
+        params.append(max(1, min(hours, 24 * 3650)))
+    if unread_only:
+        conditions.append("is_read = FALSE")
+    return " AND ".join(conditions), params
+
+
+@app.get("/alerts/list")
+async def list_alerts(limit: int = 50, offset: int = 0, severity: str | None = None,
+                     unread_only: bool = False, resolved: bool | None = None,
+                     device_id: str | None = None, hours: int | None = None,
+                     current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    where, params = _alert_filters(current_user.id, resolved=resolved, severity=severity,
+                                   device_id=device_id, hours=hours, unread_only=unread_only)
+    params += [max(1, min(limit, 500)), max(0, offset)]
+    conn = _create_db_connection()
+    try:
+        rows = conn.execute(
+            f"""SELECT * FROM alerts WHERE {where} ORDER BY created_at DESC, id DESC
+                LIMIT %s OFFSET %s""", params,
+        ).fetchall()
+        total = conn.execute(f"SELECT COUNT(*) AS count FROM alerts WHERE {where}", params[:-2]).fetchone()["count"]
+        return {"alerts": [_alert_json(row) for row in rows], "total": total}
+    finally:
+        conn.close()
+
+
+@app.get("/alerts/unread")
+async def list_unread_alerts(current_user: UserOut = Depends(get_current_user)) -> list[dict[str, Any]]:
+    where, params = _alert_filters(current_user.id, resolved=False, severity=None,
+                                   device_id=None, hours=None, unread_only=True)
+    conn = _create_db_connection()
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM alerts WHERE {where} ORDER BY created_at DESC, id DESC LIMIT 500", params,
+        ).fetchall()
+        return [_alert_json(row) for row in rows]
+    finally:
+        conn.close()
+
+
+@app.get("/alerts/summary")
+async def get_alerts_summary(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """SELECT COUNT(*) AS total_alerts,
+                       COUNT(*) FILTER (WHERE resolved = FALSE) AS unresolved_alerts,
+                       COUNT(*) FILTER (WHERE is_read = FALSE) AS unread_alerts,
+                       COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS alerts_24h
+               FROM alerts WHERE user_id = %s""", (current_user.id,),
+        ).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+@app.get("/alerts/statistics")
+async def get_alert_statistics(days_back: int = 30,
+                               current_user: UserOut = Depends(get_current_user)) -> dict[str, int]:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """SELECT COUNT(*) AS total,
+                 COUNT(*) FILTER (WHERE is_read = FALSE) AS unread,
+                 COUNT(*) FILTER (WHERE severity = 'critical') AS critical,
+                 COUNT(*) FILTER (WHERE severity = 'high') AS high,
+                 COUNT(*) FILTER (WHERE severity = 'medium') AS medium,
+                 COUNT(*) FILTER (WHERE severity = 'low') AS low
+               FROM alerts WHERE user_id = %s AND created_at >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 day')""",
+            (current_user.id, max(1, min(days_back, 3650))),
+        ).fetchone()
+        return {key: int(value) for key, value in row.items()}
+    finally:
+        conn.close()
+
+
+def _update_alert(current_user_id: int, alert_id: int, *, resolved: bool | None = None,
+                  mark_read: bool = False) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        row = conn.execute(
+            """UPDATE alerts SET is_read = (is_read OR %s),
+                 resolved = COALESCE(%s, resolved)
+               WHERE id = %s AND user_id = %s RETURNING *""",
+            (mark_read, resolved, alert_id, current_user_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        conn.commit()
+        return _alert_json(row)
+    finally:
+        conn.close()
+
+
+@app.patch("/alerts/{alert_id}/read")
+async def mark_alert_read(alert_id: int,
+                          current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    return _update_alert(current_user.id, alert_id, mark_read=True)
+
+
+@app.patch("/alerts/{alert_id}/dismiss")
+async def dismiss_alert(alert_id: int,
+                        current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    return _update_alert(current_user.id, alert_id, resolved=True, mark_read=True)
+
+
+@app.post("/alerts/resolve/{alert_id}")
+async def resolve_alert_legacy(alert_id: int,
+                               current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    _update_alert(current_user.id, alert_id, resolved=True, mark_read=True)
+    return {"success": True}
+
+
+@app.post("/alerts/mark-all-read")
+async def mark_all_alerts_read(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        cursor = conn.execute("UPDATE alerts SET is_read = TRUE WHERE user_id = %s AND is_read = FALSE", (current_user.id,))
+        conn.commit()
+        return {"success": True, "updated": cursor.rowcount}
+    finally:
+        conn.close()
+
+
+@app.post("/alerts/clear-all")
+async def clear_all_alerts(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        cursor = conn.execute("UPDATE alerts SET resolved = TRUE, is_read = TRUE WHERE user_id = %s AND resolved = FALSE", (current_user.id,))
+        conn.commit()
+        return {"success": True, "deleted": cursor.rowcount, "cleared_count": cursor.rowcount}
+    finally:
+        conn.close()
+
+
+@app.delete("/alerts/clear-old")
+async def clear_old_alerts(days_old: int = 30,
+                           current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        cursor = conn.execute(
+            "DELETE FROM alerts WHERE user_id = %s AND resolved = TRUE AND created_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 day')",
             (current_user.id, max(1, days_old)),
         )
         conn.commit()

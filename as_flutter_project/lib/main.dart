@@ -9,8 +9,20 @@ import 'services/auth_service.dart';
 import 'services/notification_service.dart';
 import 'services/connectivity_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:firebase_core/firebase_core.dart';
+import 'services/firebase_config.dart';
 
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
+
+Future<void> _initializeFirebase() async {
+  try {
+    await Firebase.initializeApp(options: FirebaseConfig.options);
+    debugPrint('Firebase initialized for push notifications.');
+  } catch (e) {
+    // Keep the app usable for builds that have not been connected to Firebase.
+    debugPrint('Firebase push is not configured for this build: $e');
+  }
+}
 
 // Electric IoT Theme Colors
 class AppColors {
@@ -59,6 +71,9 @@ void main() async {
 
   // Load runtime config (backend URL, etc.)
   await ConfigService().initialize();
+
+  // Firebase must be initialized before FirebaseMessaging is accessed.
+  await _initializeFirebase();
 
   // Initialize connectivity monitoring
   await ConnectivityService().initialize();

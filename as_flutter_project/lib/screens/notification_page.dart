@@ -25,6 +25,7 @@ class _NotificationsPageState extends State<NotificationsPage>
   bool _showUnresolvedOnly = true;
   int _currentPage = 0;
   final int _pageSize = 20;
+  int _totalListedAlerts = 0;
   String? _alertError;
 
   // Activity Notifications state
@@ -87,15 +88,25 @@ class _NotificationsPageState extends State<NotificationsPage>
         resolved: _showUnresolvedOnly ? false : null,
       );
 
+      if (summaryData == null || listData == null) {
+        if (mounted) {
+          setState(() {
+            _isLoadingAlerts = false;
+            _alertError =
+                'Could not load alerts. Check your connection and sign-in.';
+          });
+        }
+        return;
+      }
+
       if (mounted) {
         setState(() {
           _alertError = null;
-          if (summaryData != null) {
-            _summary = summaryData;
-          }
-          if (listData != null) {
-            _alerts = listData['alerts'] ?? [];
-          }
+          _summary = summaryData;
+          final rows = listData['alerts'];
+          _alerts = rows is List ? rows : <dynamic>[];
+          _totalListedAlerts =
+              (listData['total'] as num?)?.toInt() ?? _alerts.length;
           _isLoadingAlerts = false;
         });
         _animController.forward(from: 0);
@@ -110,13 +121,10 @@ class _NotificationsPageState extends State<NotificationsPage>
     }
   }
 
-  Future<void> _resolveAlert(String alertId, int index) async {
+  Future<void> _resolveAlert(String alertId) async {
     final result = await _authService.resolveAlert(alertId);
 
-    if (result != null && mounted) {
-      setState(() {
-        _alerts.removeAt(index);
-      });
+    if (result?['success'] == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Alert resolved'),
@@ -127,6 +135,12 @@ class _NotificationsPageState extends State<NotificationsPage>
         ),
       );
       _loadAlerts();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not resolve this alert. Please retry.'),
+        ),
+      );
     }
   }
 
@@ -659,7 +673,7 @@ class _NotificationsPageState extends State<NotificationsPage>
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
-                                    'Alerts are triggered when devices are ON for more than 24 hours continuously.',
+                                    'Voltage or current alerts are created when a reading crosses your configured threshold. Repeated readings in the same out-of-range episode do not create duplicate alerts.',
                                     style: TextStyle(
                                         fontSize: 12, color: AppColors.info),
                                   ),
@@ -696,6 +710,46 @@ class _NotificationsPageState extends State<NotificationsPage>
                                     _buildModernAlertItem(
                                         _alerts[index], index, isDark),
                               ),
+
+                        if (_totalListedAlerts > _pageSize)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  tooltip: 'Previous page',
+                                  onPressed: _currentPage == 0
+                                      ? null
+                                      : () {
+                                          setState(() => _currentPage--);
+                                          _loadAlerts();
+                                        },
+                                  icon: const Icon(Icons.chevron_left_rounded),
+                                ),
+                                Text(
+                                  'Page ${_currentPage + 1} of ${(_totalListedAlerts / _pageSize).ceil()}',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.grey.shade300
+                                        : Colors.grey.shade700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Next page',
+                                  onPressed: (_currentPage + 1) * _pageSize >=
+                                          _totalListedAlerts
+                                      ? null
+                                      : () {
+                                          setState(() => _currentPage++);
+                                          _loadAlerts();
+                                        },
+                                  icon: const Icon(Icons.chevron_right_rounded),
+                                ),
+                              ],
+                            ),
+                          ),
 
                         const SizedBox(height: 80),
                       ],
@@ -862,7 +916,7 @@ class _NotificationsPageState extends State<NotificationsPage>
             ),
             const SizedBox(width: 6),
             Text(
-              'Unresolved Only',
+              _showUnresolvedOnly ? 'Unresolved Only' : 'All Alerts',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight:
@@ -1001,7 +1055,7 @@ class _NotificationsPageState extends State<NotificationsPage>
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
-            onTap: isResolved ? null : () => _resolveAlert(alert['id'], index),
+            onTap: isResolved ? null : () => _resolveAlert(alert['id']),
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Row(

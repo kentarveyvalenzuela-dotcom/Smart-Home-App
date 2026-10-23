@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../services/auth_service.dart';
 import '../services/google_signin_2fa_service.dart';
 import '../services/notification_service.dart';
+import '../widgets/google_signin_button.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'home_screen.dart';
 import 'forgot_password_page.dart';
@@ -33,6 +37,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
   late Animation<double> _pulseAnimation;
 
   final AuthService _authService = AuthService();
+  StreamSubscription<GoogleSignInAccount?>? _googleAccountSubscription;
 
   @override
   void initState() {
@@ -52,16 +57,65 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
       parent: _pulseController,
       curve: Curves.easeInOut,
     ));
+
+    if (kIsWeb) {
+      _googleAccountSubscription =
+          _authService.googleSignInEvents.listen((account) {
+        if (account != null) {
+          unawaited(_handleGoogleWebAccount(account));
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    unawaited(_googleAccountSubscription?.cancel());
     _pulseController.dispose();
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPassController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleGoogleWebAccount(GoogleSignInAccount account) async {
+    if (!mounted || isLoading) return;
+    setState(() => isLoading = true);
+
+    try {
+      final result = await _authService.signInWithGoogleAccount(account);
+      if (!mounted) return;
+      if (result?['success'] != true) {
+        _showSnackBar(
+          result?['error']?.toString() ?? 'Google sign-in failed',
+          isError: true,
+        );
+        return;
+      }
+
+      if (result?['requires2FA'] == true) {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) =>
+              GoogleSignIn2FAPage(email: result?['email']?.toString()),
+        ));
+        return;
+      }
+
+      _showSnackBar('Google sign-in successful!');
+      final userEmail = result?['user']?['email'] ?? 'Google User';
+      NotificationService().addGoogleSignInNotification(userEmail);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
+    } catch (error) {
+      if (mounted) {
+        _showSnackBar('Google sign-in failed: $error', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
@@ -516,7 +570,9 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                             // Google Sign In Button
                             SizedBox(
                               width: double.infinity,
-                              child: OutlinedButton(
+                              child: kIsWeb
+                                  ? const GoogleSignInWebButton()
+                                  : OutlinedButton(
                                 style: OutlinedButton.styleFrom(
                                   padding:
                                       const EdgeInsets.symmetric(vertical: 16),

@@ -75,6 +75,7 @@ class NotificationService {
   final _notificationStreamController = StreamController<List<ActivityNotification>>.broadcast();
   Timer? _pollTimer;
   StreamSubscription<String>? _pushTokenSubscription;
+  StreamSubscription<RemoteMessage>? _foregroundPushSubscription;
   String? _registeredPushToken;
   bool _initialized = false;
 
@@ -91,6 +92,7 @@ class NotificationService {
   Future<void> initialize() async {
     if (_initialized) {
       _startPolling();
+      await _syncFromBackend();
       return;
     }
     await _loadFromLocalStorage();
@@ -98,8 +100,10 @@ class NotificationService {
     _startPolling();
     if (!kIsWeb) {
       try {
-        _pushTokenSubscription = FirebaseMessaging.instance.onTokenRefresh.listen((token) {
-          _registerPushToken(token);
+        final messaging = FirebaseMessaging.instance;
+        _pushTokenSubscription = messaging.onTokenRefresh.listen(_registerPushToken);
+        _foregroundPushSubscription = FirebaseMessaging.onMessage.listen((_) {
+          _syncFromBackend();
         });
       } catch (e) {
         debugPrint('Firebase Messaging is not initialized: $e');
@@ -137,14 +141,30 @@ class NotificationService {
   }
 
   Future<void> _registerPushToken([String? refreshedToken]) async {
-    if (kIsWeb) return;
     try {
+      if (kIsWeb) return;
       final headers = await _headers();
       if (!headers.containsKey('Authorization')) return;
       final settings = await FirebaseMessaging.instance.requestPermission(
         alert: true, badge: true, sound: true,
       );
       if (settings.authorizationStatus == AuthorizationStatus.denied) return;
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+        String? apnsToken;
+        for (var attempt = 0; attempt < 10 && apnsToken == null; attempt++) {
+          apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+          if (apnsToken == null) await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+        if (apnsToken == null) {
+          debugPrint('Push token registration waiting for an APNs token.');
+          return;
+        }
+      }
       final token = refreshedToken ?? await FirebaseMessaging.instance.getToken();
       if (token == null || token.isEmpty || token == _registeredPushToken) return;
       final response = await http.post(
@@ -269,6 +289,7 @@ class NotificationService {
   void dispose() {
     stopPolling();
     _pushTokenSubscription?.cancel();
+    _foregroundPushSubscription?.cancel();
     _notificationStreamController.close();
   }
 }

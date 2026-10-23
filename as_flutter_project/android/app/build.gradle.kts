@@ -79,3 +79,9 @@ dependencies {
     // MultiDex support
     implementation("androidx.multidex:multidex:2.0.1")
 }
+
+// Enable native Firebase resource generation only after the project's own
+// google-services.json has been added to android/app.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
