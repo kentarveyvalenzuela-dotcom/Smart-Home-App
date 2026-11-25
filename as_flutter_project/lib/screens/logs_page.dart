@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../services/auth_service.dart';
+import '../services/log_service.dart';
 import '../main.dart';
 
 class LogsPage extends StatefulWidget {
@@ -12,7 +12,7 @@ class LogsPage extends StatefulWidget {
 
 class _LogsPageState extends State<LogsPage>
     with SingleTickerProviderStateMixin {
-  final AuthService _authService = AuthService();
+  final LogService _logService = LogService();
   List<dynamic> _logs = [];
   bool _isLoading = true;
   int _currentPage = 0;
@@ -45,33 +45,22 @@ class _LogsPageState extends State<LogsPage>
     setState(() => _isLoading = true);
 
     try {
-      Map<String, dynamic>? data;
+      final response = await _logService.getScreenLogs(
+        skip: _currentPage * _pageSize,
+        limit: _pageSize,
+        hours: _selectedHours,
+        logType: _filterType == 'device_control'
+            ? 'device_control'
+            : _filterType == 'sensor_readings'
+                ? 'sensor_alert'
+                : null,
+      );
+      final data = response.data;
 
-      if (_filterType == 'device_control') {
-        data = await _authService.getDeviceControlLogs(
-          skip: _currentPage * _pageSize,
-          limit: _pageSize,
-          hours: _selectedHours,
-        );
-      } else if (_filterType == 'sensor_readings') {
-        data = await _authService.getSensorReadings(
-          skip: _currentPage * _pageSize,
-          limit: _pageSize,
-          hours: _selectedHours,
-        );
-      } else {
-        // All logs - no type filter
-        data = await _authService.getLogs(
-          skip: _currentPage * _pageSize,
-          limit: _pageSize,
-          hours: _selectedHours,
-        );
-      }
-
-      if (data != null && mounted) {
+      if (response.success && data != null && mounted) {
         setState(() {
-          _logs = List<dynamic>.from(data?['logs'] ?? []);
-          _totalCount = data?['total_count'] ?? 0;
+          _logs = List<dynamic>.from(data['logs'] ?? []);
+          _totalCount = data['total_count'] ?? 0;
           _error = null;
           _isLoading = false;
         });

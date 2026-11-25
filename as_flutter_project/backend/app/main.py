@@ -24,7 +24,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 import paho.mqtt.client as mqtt
 from psycopg.types.json import Jsonb
 
@@ -83,6 +83,7 @@ SECRET_KEY = os.getenv(
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+EMAIL_VERIFICATION_REQUIRED = os.getenv("EMAIL_VERIFICATION_REQUIRED", "false").strip().lower() in {"1", "true", "yes"}
 
 
 app = FastAPI(
@@ -94,6 +95,7 @@ app = FastAPI(
 # available for development and allow deployments to provide their own list.
 _default_cors_origins = (
     "http://localhost:8080,http://127.0.0.1:8080,"
+    "http://localhost:8081,http://127.0.0.1:8081,"
     "http://localhost:5000,http://127.0.0.1:5000"
 )
 CORS_ALLOWED_ORIGINS = [
@@ -174,10 +176,15 @@ class ResetPasswordRequest(BaseModel):
 
 
 class DeviceCreateRequest(BaseModel):
-    name: str
-    type: str = "light"
+    name: str = Field(validation_alias=AliasChoices("name", "device_name"))
+    type: str = Field(
+        default="light",
+        validation_alias=AliasChoices("type", "device_type"),
+    )
     pin: int | None = None
     topic: str | None = None
+    mqtt_client_id: str | None = None
+    location: str | None = None
 
 
 class DeviceUpdateRequest(BaseModel):
@@ -187,6 +194,11 @@ class DeviceUpdateRequest(BaseModel):
     topic: str | None = None
     status: str | None = None
     is_online: bool | None = None
+
+
+class DeviceShareRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+    role: str = Field(default="viewer", pattern="^(viewer|controller)$")
 
 
 class LogRequest(BaseModel):
@@ -347,7 +359,10 @@ def _send_push_notification(user_id: int, title: str, message: str,
         return
     try:
         if not firebase_admin._apps:
-            firebase_admin.initialize_app(credentials.Certificate(json.loads(service_account)))
+            if os.path.isfile(service_account):
+                firebase_admin.initialize_app(credentials.Certificate(service_account))
+            else:
+                firebase_admin.initialize_app(credentials.Certificate(json.loads(service_account)))
         conn = _create_db_connection()
         try:
             enabled = conn.execute(
@@ -809,6 +824,16 @@ async def register(
                     conn.commit()
                 finally:
                     conn.close()
+            if not EMAIL_VERIFICATION_REQUIRED:
+                conn = _create_db_connection()
+                try:
+                    conn.execute("UPDATE users SET email_verified = TRUE WHERE id = %s", (existing["id"],))
+                    conn.commit()
+                finally:
+                    conn.close()
+                return {"success": True, "requires_email_verification": False,
+                        "message": "Account verified.",
+                        "user": {"id": existing["id"], "email": email, "name": existing["name"]}}
             await asyncio.to_thread(_issue_email_code, existing["id"], email, "email_verification")
             return {"success": True, "requires_email_verification": True,
                     "message": "A new email verification code was sent.",
@@ -833,13 +858,14 @@ async def register(
                 name,
                 email_verified
             )
-            VALUES (%s, %s, %s, FALSE)
+            VALUES (%s, %s, %s, %s)
             RETURNING id
             """,
             (
                 email,
                 password_hash,
                 name,
+                not EMAIL_VERIFICATION_REQUIRED,
             ),
         ).fetchone()
 
@@ -850,18 +876,19 @@ async def register(
     finally:
         conn.close()
 
-    try:
-        await asyncio.to_thread(_issue_email_code, user_id, email, "email_verification")
-    except Exception:
-        cleanup = _create_db_connection()
+    if EMAIL_VERIFICATION_REQUIRED:
         try:
-            cleanup.execute("DELETE FROM users WHERE id = %s AND email_verified = FALSE", (user_id,))
-            cleanup.commit()
-        finally:
-            cleanup.close()
-        raise
-    return {"success": True, "requires_email_verification": True,
-            "message": "A verification code was sent to your email.",
+            await asyncio.to_thread(_issue_email_code, user_id, email, "email_verification")
+        except Exception:
+            cleanup = _create_db_connection()
+            try:
+                cleanup.execute("DELETE FROM users WHERE id = %s AND email_verified = FALSE", (user_id,))
+                cleanup.commit()
+            finally:
+                cleanup.close()
+            raise
+    return {"success": True, "requires_email_verification": EMAIL_VERIFICATION_REQUIRED,
+            "message": "A verification code was sent to your email." if EMAIL_VERIFICATION_REQUIRED else "Account created.",
             "user": {"id": user_id, "email": email, "name": name}}
 
 
@@ -900,9 +927,17 @@ async def login(
         finally:
             conn.close()
 
-    if not user_row["email_verified"]:
+    if not user_row["email_verified"] and EMAIL_VERIFICATION_REQUIRED:
         await asyncio.to_thread(_issue_email_code, user_row["id"], user_row["email"], "email_verification")
         return {"requires_email_verification": True, "email": user_row["email"]}
+
+    if not user_row["email_verified"]:
+        conn = _create_db_connection()
+        try:
+            conn.execute("UPDATE users SET email_verified = TRUE WHERE id = %s", (user_row["id"],))
+            conn.commit()
+        finally:
+            conn.close()
 
     if user_row["two_factor_enabled"]:
         await asyncio.to_thread(_issue_email_code, user_row["id"], user_row["email"], "google_signin_2fa")
@@ -1167,7 +1202,6 @@ async def request_password_reset(
         "message": (
             "If the email exists, a reset code has been sent."
         ),
-        "token": token,
     }
 
 
@@ -1669,17 +1703,18 @@ async def list_devices(
 
         rows = conn.execute(
             """
-            SELECT *
-            FROM devices
-            WHERE user_id = %s
-            ORDER BY id DESC
+            SELECT d.*, 'all_users' AS access_role
+            FROM devices d
+            ORDER BY d.id DESC
             """,
-            (current_user.id,),
         ).fetchall()
 
         return [
             {
                 "id": row["id"],
+                "device_id": str(row["mqtt_client_id"] or row["id"]),
+                "backend_device_id": str(row["id"]),
+                "mqtt_client_id": row["mqtt_client_id"],
                 "name": row["name"],
                 "type": row["type"],
                 "status": row["status"],
@@ -1688,12 +1723,86 @@ async def list_devices(
                 ),
                 "pin": row["pin"],
                 "topic": row["topic"],
+                "location": row["location"],
                 "created_at": row["created_at"],
                 "last_seen": row["last_seen"],
+                "access_role": "all_users",
             }
             for row in rows
         ]
 
+    finally:
+        conn.close()
+
+
+@app.post("/devices/{device_id}/shares")
+async def share_device(
+    device_id: int,
+    payload: DeviceShareRequest,
+    current_user: UserOut = Depends(get_current_user),
+) -> dict[str, Any]:
+    email = payload.email.strip().lower()
+    if email == current_user.email.strip().lower():
+        raise HTTPException(status_code=400, detail="The owner already has access")
+    conn = _create_db_connection()
+    try:
+        device = conn.execute(
+            "SELECT id FROM devices WHERE id = %s AND user_id = %s",
+            (device_id, current_user.id),
+        ).fetchone()
+        if device is None:
+            raise HTTPException(status_code=404, detail="Device not found or you are not the owner")
+        member = conn.execute("SELECT id, email, name FROM users WHERE lower(email) = %s", (email,)).fetchone()
+        if member is None:
+            raise HTTPException(status_code=404, detail="User account not found. Ask them to register first.")
+        conn.execute(
+            """INSERT INTO device_shares (device_id, user_id, role)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (device_id, user_id) DO UPDATE SET role = EXCLUDED.role""",
+            (device_id, member["id"], payload.role),
+        )
+        conn.commit()
+        return {"success": True, "device_id": str(device_id), "user": dict(member), "role": payload.role}
+    finally:
+        conn.close()
+
+
+@app.get("/devices/{device_id}/shares")
+async def list_device_shares(
+    device_id: int,
+    current_user: UserOut = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    conn = _create_db_connection()
+    try:
+        owner = conn.execute("SELECT id FROM devices WHERE id = %s AND user_id = %s", (device_id, current_user.id)).fetchone()
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Device not found or you are not the owner")
+        rows = conn.execute(
+            """SELECT ds.user_id, u.email, u.name, ds.role, ds.created_at
+               FROM device_shares ds JOIN users u ON u.id = ds.user_id
+               WHERE ds.device_id = %s ORDER BY u.email""", (device_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+@app.delete("/devices/{device_id}/shares/{member_id}")
+async def revoke_device_share(
+    device_id: int,
+    member_id: int,
+    current_user: UserOut = Depends(get_current_user),
+) -> dict[str, Any]:
+    conn = _create_db_connection()
+    try:
+        owner = conn.execute("SELECT id FROM devices WHERE id = %s AND user_id = %s", (device_id, current_user.id)).fetchone()
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Device not found or you are not the owner")
+        cursor = conn.execute("DELETE FROM device_shares WHERE device_id = %s AND user_id = %s", (device_id, member_id))
+        conn.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Share not found")
+        return {"success": True, "message": "Device access revoked"}
     finally:
         conn.close()
 
@@ -1710,48 +1819,70 @@ async def register_device(
     ),
 ) -> dict[str, Any]:
 
+    name = payload.name.strip()
+    mqtt_client_id = (payload.mqtt_client_id or "").strip() or None
+    topic = (payload.topic or "").strip() or (
+        f"home/device/{mqtt_client_id}" if mqtt_client_id else None
+    )
+    if not name:
+        raise HTTPException(status_code=422, detail="Device name is required")
+    if mqtt_client_id and any(char in mqtt_client_id for char in "/+#"):
+        raise HTTPException(status_code=422, detail="Device MQTT ID is invalid")
+    if mqtt_client_id and topic != f"home/device/{mqtt_client_id}":
+        raise HTTPException(status_code=422, detail="Device topic does not match its MQTT ID")
+
     conn = _create_db_connection()
-
     try:
+        existing = None
+        if mqtt_client_id:
+            existing = conn.execute(
+                """SELECT id FROM devices
+                   WHERE user_id = %s AND mqtt_client_id = %s LIMIT 1""",
+                (current_user.id, mqtt_client_id),
+            ).fetchone()
 
-        row = conn.execute(
-            """
-            INSERT INTO devices (
-                user_id,
-                name,
-                type,
-                status,
-                is_online,
-                pin,
-                topic
-            )
-            VALUES (
-                %s,
-                %s,
-                %s,
-                'off',
-                TRUE,
-                %s,
-                %s
-            )
-            RETURNING *
-            """,
-            (
-                current_user.id,
-                payload.name.strip(),
-                payload.type.strip() or "light",
-                payload.pin,
-                payload.topic,
-            ),
-        ).fetchone()
-
+        if existing:
+            row = conn.execute(
+                """UPDATE devices
+                   SET name = %s, type = %s, pin = %s, topic = %s,
+                       location = %s
+                   WHERE id = %s AND user_id = %s
+                   RETURNING *""",
+                (
+                    name,
+                    payload.type.strip() or "light",
+                    payload.pin,
+                    topic,
+                    payload.location or "",
+                    existing["id"],
+                    current_user.id,
+                ),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """INSERT INTO devices (
+                       user_id, name, type, status, is_online, pin, topic,
+                       mqtt_client_id, location
+                   ) VALUES (%s, %s, %s, 'off', FALSE, %s, %s, %s, %s)
+                   RETURNING *""",
+                (
+                    current_user.id,
+                    name,
+                    payload.type.strip() or "light",
+                    payload.pin,
+                    topic,
+                    mqtt_client_id,
+                    payload.location or "",
+                ),
+            ).fetchone()
         conn.commit()
-
     finally:
         conn.close()
 
     return {
         "id": row["id"],
+        "device_id": str(row["id"]),
+        "mqtt_client_id": row["mqtt_client_id"],
         "name": row["name"],
         "type": row["type"],
         "status": row["status"],
@@ -1760,6 +1891,7 @@ async def register_device(
         ),
         "pin": row["pin"],
         "topic": row["topic"],
+        "location": row["location"],
         "created_at": row["created_at"],
         "last_seen": row["last_seen"],
     }
@@ -1782,16 +1914,8 @@ async def get_device(
     try:
 
         row = conn.execute(
-            """
-            SELECT *
-            FROM devices
-            WHERE id = %s
-              AND user_id = %s
-            """,
-            (
-                device_id,
-                current_user.id,
-            ),
+            "SELECT d.* FROM devices d WHERE d.id = %s",
+            (device_id,),
         ).fetchone()
 
         if row is None:
@@ -1951,7 +2075,7 @@ async def update_device(
 
 @app.delete("/devices/{device_id}")
 async def delete_device(
-    device_id: int,
+    device_id: str,
     current_user: UserOut = Depends(
         get_current_user
     ),
@@ -1964,11 +2088,12 @@ async def delete_device(
         cursor = conn.execute(
             """
             DELETE FROM devices
-            WHERE id = %s
+            WHERE (id::text = %s OR mqtt_client_id = %s)
               AND user_id = %s
             """,
             (
-                device_id,
+                device_id.strip(),
+                device_id.strip(),
                 current_user.id,
             ),
         )
@@ -1995,7 +2120,7 @@ async def delete_device(
 # ============================================================
 
 def _publish_mqtt_message(topic: str, message: str) -> None:
-    if not MQTT_BROKER or not MQTT_USERNAME or not MQTT_PASSWORD:
+    if not MQTT_BROKER:
         raise RuntimeError("MQTT publisher is not configured")
     connected = threading.Event()
     connect_error: list[str] = []
@@ -2004,7 +2129,8 @@ def _publish_mqtt_message(topic: str, message: str) -> None:
         client_id=f"smart-home-api-{secrets.token_hex(8)}",
         protocol=mqtt.MQTTv311,
     )
-    client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+    if MQTT_USERNAME and MQTT_PASSWORD:
+        client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     if MQTT_USE_TLS:
         client.tls_set()
 
@@ -2043,8 +2169,8 @@ def _execute_device_command(user_id: int, selector: str, command: str) -> dict[s
     try:
         device = conn.execute(
             """SELECT id, user_id, name, status, mqtt_client_id FROM devices
-               WHERE user_id = %s AND (id::text = %s OR mqtt_client_id = %s) LIMIT 1""",
-            (user_id, selector, selector),
+               WHERE id::text = %s OR mqtt_client_id = %s LIMIT 1""",
+            (selector, selector),
         ).fetchone()
         if device is None:
             raise HTTPException(status_code=404, detail="Device not found")
@@ -2169,12 +2295,13 @@ _mqtt_event_client: mqtt.Client | None = None
 @app.on_event("startup")
 async def start_mqtt_event_listener() -> None:
     global _mqtt_event_client
-    if not MQTT_BROKER or not MQTT_USERNAME or not MQTT_PASSWORD:
+    if not MQTT_BROKER:
         return
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
                          client_id=f"smart-home-events-{secrets.token_hex(6)}",
                          protocol=mqtt.MQTTv311)
-    client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+    if MQTT_USERNAME and MQTT_PASSWORD:
+        client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     if MQTT_USE_TLS:
         client.tls_set()
 
@@ -2624,9 +2751,9 @@ async def ingest_device_sensors(
 
 def _owned_device_id(conn: Any, user_id: int, selector: str) -> str:
     row = conn.execute(
-        """SELECT id FROM devices WHERE user_id = %s
-           AND (id::text = %s OR mqtt_client_id = %s) LIMIT 1""",
-        (user_id, selector.strip(), selector.strip()),
+        """SELECT id FROM devices
+           WHERE id::text = %s OR mqtt_client_id = %s LIMIT 1""",
+        (selector.strip(), selector.strip()),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -2727,8 +2854,8 @@ async def register_energy_device(current_user: UserOut = Depends(get_current_use
     try:
         row = conn.execute(
             """SELECT id, name, type, status, is_online, mqtt_client_id
-               FROM devices WHERE user_id = %s AND lower(name) = 'energy monitor'
-               ORDER BY id LIMIT 1""", (current_user.id,),
+               FROM devices WHERE lower(name) = 'energy monitor'
+               ORDER BY id LIMIT 1""",
         ).fetchone()
         if row is None:
             row = conn.execute(
@@ -2747,10 +2874,15 @@ async def register_energy_device(current_user: UserOut = Depends(get_current_use
 async def get_current_energy(current_user: UserOut = Depends(get_current_user)) -> dict[str, Any]:
     conn = _create_db_connection()
     try:
+        owner_ids = [row["user_id"] for row in conn.execute(
+            "SELECT DISTINCT user_id FROM devices"
+        ).fetchall()]
+        if not owner_ids:
+            return {}
         row = conn.execute(
             """SELECT voltage, current, power, energy, channels, recorded_at AS timestamp
-               FROM energy_readings WHERE user_id = %s ORDER BY recorded_at DESC, id DESC LIMIT 1""",
-            (current_user.id,),
+               FROM energy_readings WHERE user_id = ANY(%s) ORDER BY recorded_at DESC, id DESC LIMIT 1""",
+            (owner_ids,),
         ).fetchone()
         return dict(row) if row else {}
     finally:
@@ -2772,6 +2904,13 @@ async def get_energy_history(limit: int = 100, start_time: datetime | None = Non
     params.append(max(1, min(limit, 1000)))
     conn = _create_db_connection()
     try:
+        owner_ids = [row["user_id"] for row in conn.execute(
+            "SELECT DISTINCT user_id FROM devices"
+        ).fetchall()]
+        if not owner_ids:
+            return []
+        conditions[0] = "user_id = ANY(%s)"
+        params[0] = owner_ids
         rows = conn.execute(
             f"""SELECT voltage, current, power, energy, channels, recorded_at AS timestamp
                 FROM energy_readings WHERE {' AND '.join(conditions)}
@@ -2859,8 +2998,8 @@ async def get_latest_sensor_reading(device_id: str,
     try:
         canonical_id = _owned_device_id(conn, current_user.id, device_id)
         row = conn.execute(
-            """SELECT * FROM sensor_readings WHERE user_id = %s AND device_id = %s
-               ORDER BY recorded_at DESC, id DESC LIMIT 1""", (current_user.id, canonical_id),
+            """SELECT * FROM sensor_readings WHERE device_id = %s
+               ORDER BY recorded_at DESC, id DESC LIMIT 1""", (canonical_id,),
         ).fetchone()
         return _sensor_json(row) if row else {}
     finally:
@@ -2875,8 +3014,8 @@ async def get_device_sensor_readings(device_id: str, sensor_type: str | None = N
     conn = _create_db_connection()
     try:
         canonical_id = _owned_device_id(conn, current_user.id, device_id)
-        conditions = ["user_id = %s", "device_id = %s"]
-        params: list[Any] = [current_user.id, canonical_id]
+        conditions = ["device_id = %s"]
+        params: list[Any] = [canonical_id]
         if sensor_type:
             conditions.append("sensor_type = %s")
             params.append(sensor_type.strip().lower())
@@ -2889,7 +3028,7 @@ async def get_device_sensor_readings(device_id: str, sensor_type: str | None = N
         params.append(max(1, min(limit, 1000)))
         rows = conn.execute(
             f"""SELECT * FROM sensor_readings WHERE {' AND '.join(conditions)}
-                ORDER BY recorded_at DESC, id DESC LIMIT %s""", params,
+                ORDER BY recorded_at DESC, id DESC LIMIT %s""", [*params, max(1, min(limit, 1000))],
         ).fetchall()
         return [_sensor_json(row) for row in rows]
     finally:
@@ -2902,9 +3041,9 @@ async def get_all_sensor_readings(limit: int = 50,
     conn = _create_db_connection()
     try:
         rows = conn.execute(
-            """SELECT * FROM sensor_readings WHERE user_id = %s
+            """SELECT * FROM sensor_readings
                ORDER BY recorded_at DESC, id DESC LIMIT %s""",
-            (current_user.id, max(1, min(limit, 1000))),
+            (max(1, min(limit, 1000)),),
         ).fetchall()
         return [_sensor_json(row) for row in rows]
     finally:
@@ -2918,7 +3057,7 @@ async def get_sensor_statistics(device_id: str, sensor_type: str | None = None,
     conn = _create_db_connection()
     try:
         canonical_id = _owned_device_id(conn, current_user.id, device_id)
-        params: list[Any] = [current_user.id, canonical_id, max(1, min(days_back, 3650))]
+        params: list[Any] = [canonical_id, max(1, min(days_back, 3650))]
         condition = ""
         if sensor_type:
             condition = " AND sensor_type = %s"
@@ -2927,7 +3066,7 @@ async def get_sensor_statistics(device_id: str, sensor_type: str | None = None,
             f"""SELECT MIN(value) AS min, MAX(value) AS max, AVG(value) AS average,
                        COUNT(*) AS reading_count, MIN(recorded_at) AS start_time,
                        MAX(recorded_at) AS end_time
-                FROM sensor_readings WHERE user_id = %s AND device_id = %s
+                FROM sensor_readings WHERE device_id = %s
                   AND recorded_at >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 day'){condition}""", params,
         ).fetchone()
         now = datetime.now(timezone.utc)
@@ -2949,7 +3088,7 @@ async def get_sensor_summary(current_user: UserOut = Depends(get_current_user)) 
                        COUNT(DISTINCT sensor_type) AS active_sensors,
                        COUNT(*) FILTER (WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours') AS readings_24h,
                        MAX(recorded_at) AS last_reading_at
-               FROM sensor_readings WHERE user_id = %s""", (current_user.id,),
+               FROM sensor_readings""",
         ).fetchone()
         return dict(row)
     finally:

@@ -95,6 +95,36 @@ class LogService extends ApiService {
 
   LogService._internal();
 
+  /// Test-only constructor; production callers continue using the singleton.
+  LogService.forTesting({super.client, super.baseUrl});
+
+  /// Compatibility endpoint used by the existing logs screen during migration.
+  Future<ApiResponse<Map<String, dynamic>>> getScreenLogs({
+    int skip = 0,
+    int limit = 100,
+    String? logType,
+    String? severity,
+    int hours = 24,
+  }) {
+    return getRequest(
+      '/logs/list',
+      queryParams: {
+        'limit': limit.toString(),
+        'hours': hours.toString(),
+        'skip': skip.toString(),
+        if (logType != null) 'log_type': logType,
+        if (severity != null) 'severity': severity,
+      },
+      parser: (data) {
+        final map = data is Map ? Map<String, dynamic>.from(data) : {};
+        return {
+          'logs': map['logs'] ?? [],
+          'total_count': map['total'] ?? map['count'] ?? 0,
+        };
+      },
+    );
+  }
+
   /// Get user activity logs
   Future<ApiResponse<List<ActivityLog>>> getUserLogs({
     int limit = 50,

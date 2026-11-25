@@ -34,6 +34,16 @@ class SensorReading {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'device_id': deviceId,
+        'sensor_type': sensorType,
+        'value': value,
+        'unit': unit,
+        'timestamp': timestamp.toIso8601String(),
+        if (metadata != null) 'metadata': metadata,
+      };
+
   @override
   String toString() => 'SensorReading($sensorType: $value$unit)';
 }
@@ -81,6 +91,9 @@ class SensorService extends ApiService {
   }
 
   SensorService._internal();
+
+  /// Test-only constructor; production callers continue using the singleton.
+  SensorService.forTesting({super.client, super.baseUrl});
 
   /// Get latest sensor reading for a device
   Future<ApiResponse<SensorReading>> getLatestReading(String deviceId) async {

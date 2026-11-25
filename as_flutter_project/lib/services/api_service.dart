@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'config_service.dart';
+import '../storage/preferences_token_store.dart';
+import '../storage/token_store.dart';
 
 /// API response wrapper for consistent handling
 class ApiResponse<T> {
@@ -27,9 +28,44 @@ class ApiResponse<T> {
 }
 
 /// Base API service with standardized error handling, retry logic, and logging
-abstract class ApiService {
-  final String baseUrl = ConfigService().backendUrl;
+class ApiService {
+  ApiService({http.Client? client, String? baseUrl})
+      : _client = client ?? http.Client(),
+        baseUrl = baseUrl ?? ConfigService().backendUrl;
+
+  final String baseUrl;
+  final http.Client _client;
+
+  void close() => _client.close();
+
+  Future<http.Response> get(Uri uri, {Map<String, String>? headers}) =>
+      _client.get(uri, headers: headers);
+
+  Future<http.Response> post(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) =>
+      _client.post(uri, headers: headers, body: body);
+
+  Future<http.Response> patch(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) =>
+      _client.patch(uri, headers: headers, body: body);
+
+  Future<http.Response> put(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) =>
+      _client.put(uri, headers: headers, body: body);
+
+  Future<http.Response> delete(Uri uri, {Map<String, String>? headers}) =>
+      _client.delete(uri, headers: headers);
   String? _accessToken;
+  final TokenStore _tokenStore = PreferencesTokenStore();
   static const int maxRetries = 3;
   static const Duration retryDelay = Duration(milliseconds: 500);
   static const Duration requestTimeout = Duration(seconds: 30);
@@ -37,11 +73,20 @@ abstract class ApiService {
   /// Get current access token
   String? get accessToken => _accessToken;
 
+  /// Refresh the in-memory token cache and report whether a session exists.
+  /// This lets callers avoid protected requests when the user is logged out.
+  Future<bool> hasAccessToken() async {
+    _accessToken = await _tokenStore.readAccessToken();
+    return _accessToken != null && _accessToken!.isNotEmpty;
+  }
+
+  /// Shared token persistence used by AuthService and ApiService clients.
+  TokenStore get tokenStore => _tokenStore;
+
   /// Initialize service with existing tokens (called on app startup)
   Future<void> initialize() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      _accessToken = prefs.getString('access_token');
+      _accessToken = await _tokenStore.readAccessToken();
       debugPrint(
           '🔐 ApiService initialized with token: ${_accessToken != null ? 'present' : 'missing'}');
     } catch (e) {
@@ -54,11 +99,7 @@ abstract class ApiService {
     try {
       _accessToken = accessToken;
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', accessToken);
-      if (refreshToken != null) {
-        await prefs.setString('refresh_token', refreshToken);
-      }
+      await _tokenStore.saveTokens(accessToken, refreshToken: refreshToken);
       debugPrint('🔐 Tokens saved successfully');
     } catch (e) {
       debugPrint('❌ Error saving tokens: $e');
@@ -70,9 +111,7 @@ abstract class ApiService {
     try {
       _accessToken = null;
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('access_token');
-      await prefs.remove('refresh_token');
+      await _tokenStore.clearTokens();
       debugPrint('🔐 Tokens cleared on logout');
     } catch (e) {
       debugPrint('❌ Error clearing tokens: $e');
@@ -80,12 +119,17 @@ abstract class ApiService {
   }
 
   /// Build headers with auth token
-  Map<String, String> _buildHeaders({bool json = true}) {
+  Map<String, String> _buildHeaders({
+    bool json = true,
+    bool includeAuth = true,
+    String? authorizationToken,
+  }) {
     final headers = <String, String>{
       if (json) 'Content-Type': 'application/json',
     };
-    if (_accessToken != null) {
-      headers['Authorization'] = 'Bearer $_accessToken';
+    final token = authorizationToken ?? _accessToken;
+    if (includeAuth && token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
     }
     return headers;
   }
@@ -117,12 +161,16 @@ abstract class ApiService {
     String endpoint, {
     required T Function(dynamic) parser,
     Map<String, String>? queryParams,
+    bool includeAuth = true,
+    String? authorizationToken,
   }) async {
     return _makeRequestWithRetry(
       method: 'GET',
       endpoint: endpoint,
       parser: parser,
       queryParams: queryParams,
+      includeAuth: includeAuth,
+      authorizationToken: authorizationToken,
     );
   }
 
@@ -131,12 +179,18 @@ abstract class ApiService {
     String endpoint, {
     required T Function(dynamic) parser,
     Map<String, dynamic>? body,
+    Map<String, String>? queryParams,
+    bool includeAuth = true,
+    String? authorizationToken,
   }) async {
     return _makeRequestWithRetry(
       method: 'POST',
       endpoint: endpoint,
       parser: parser,
       body: body,
+      queryParams: queryParams,
+      includeAuth: includeAuth,
+      authorizationToken: authorizationToken,
     );
   }
 
@@ -145,12 +199,36 @@ abstract class ApiService {
     String endpoint, {
     required T Function(dynamic) parser,
     Map<String, dynamic>? body,
+    bool includeAuth = true,
+    String? authorizationToken,
   }) async {
     return _makeRequestWithRetry(
       method: 'PATCH',
       endpoint: endpoint,
       parser: parser,
       body: body,
+      includeAuth: includeAuth,
+      authorizationToken: authorizationToken,
+    );
+  }
+
+  /// Make PUT request
+  Future<ApiResponse<T>> putRequest<T>(
+    String endpoint, {
+    required T Function(dynamic) parser,
+    Map<String, dynamic>? body,
+    Map<String, String>? queryParams,
+    bool includeAuth = true,
+    String? authorizationToken,
+  }) async {
+    return _makeRequestWithRetry(
+      method: 'PUT',
+      endpoint: endpoint,
+      parser: parser,
+      body: body,
+      queryParams: queryParams,
+      includeAuth: includeAuth,
+      authorizationToken: authorizationToken,
     );
   }
 
@@ -158,11 +236,15 @@ abstract class ApiService {
   Future<ApiResponse<T>> deleteRequest<T>(
     String endpoint, {
     required T Function(dynamic) parser,
+    Map<String, String>? queryParams,
+    bool includeAuth = true,
   }) async {
     return _makeRequestWithRetry(
       method: 'DELETE',
       endpoint: endpoint,
       parser: parser,
+      queryParams: queryParams,
+      includeAuth: includeAuth,
     );
   }
 
@@ -173,12 +255,20 @@ abstract class ApiService {
     required T Function(dynamic) parser,
     Map<String, dynamic>? body,
     Map<String, String>? queryParams,
+    bool includeAuth = true,
+    String? authorizationToken,
     int retryCount = 0,
   }) async {
     try {
       final uri =
           Uri.parse('$baseUrl$endpoint').replace(queryParameters: queryParams);
-      final headers = _buildHeaders();
+      // AuthService may have updated the shared store since this service was
+      // initialized. Refresh only the private cache; never log the token.
+      _accessToken = await _tokenStore.readAccessToken();
+      final headers = _buildHeaders(
+        includeAuth: includeAuth,
+        authorizationToken: authorizationToken,
+      );
 
       debugPrint('📤 [$method] $endpoint (retry: $retryCount)');
       final startTime = DateTime.now();
@@ -188,9 +278,9 @@ abstract class ApiService {
       switch (method) {
         case 'GET':
           response =
-              await http.get(uri, headers: headers).timeout(requestTimeout);
+              await _client.get(uri, headers: headers).timeout(requestTimeout);
         case 'POST':
-          response = await http
+          response = await _client
               .post(
                 uri,
                 headers: headers,
@@ -198,16 +288,25 @@ abstract class ApiService {
               )
               .timeout(requestTimeout);
         case 'PATCH':
-          response = await http
+          response = await _client
               .patch(
                 uri,
                 headers: headers,
                 body: body != null ? jsonEncode(body) : null,
               )
               .timeout(requestTimeout);
+        case 'PUT':
+          response = await _client
+              .put(
+                uri,
+                headers: headers,
+                body: body != null ? jsonEncode(body) : null,
+              )
+              .timeout(requestTimeout);
         case 'DELETE':
-          response =
-              await http.delete(uri, headers: headers).timeout(requestTimeout);
+          response = await _client
+              .delete(uri, headers: headers)
+              .timeout(requestTimeout);
         default:
           throw Exception('Unsupported method: $method');
       }
@@ -274,6 +373,8 @@ abstract class ApiService {
           parser: parser,
           body: body,
           queryParams: queryParams,
+          includeAuth: includeAuth,
+          authorizationToken: authorizationToken,
           retryCount: retryCount + 1,
         );
       }
@@ -293,6 +394,8 @@ abstract class ApiService {
           parser: parser,
           body: body,
           queryParams: queryParams,
+          includeAuth: includeAuth,
+          authorizationToken: authorizationToken,
           retryCount: retryCount + 1,
         );
       }

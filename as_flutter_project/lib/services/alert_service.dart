@@ -107,6 +107,51 @@ class AlertService extends ApiService {
 
   AlertService._internal();
 
+  /// Test-only constructor; production callers continue using the singleton.
+  AlertService.forTesting({super.client, super.baseUrl});
+
+  /// Compatibility methods preserve the legacy alert screen contracts.
+  Future<ApiResponse<Map<String, dynamic>>> getScreenSummary() {
+    return getRequest(
+      '/alerts/summary',
+      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : {},
+    );
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> getScreenAlerts({
+    int skip = 0,
+    int limit = 20,
+    bool? resolved,
+    int hours = 168,
+  }) {
+    return getRequest(
+      '/alerts/list',
+      queryParams: {
+        'offset': skip.toString(),
+        'limit': limit.toString(),
+        'hours': hours.toString(),
+        if (resolved != null) 'resolved': resolved.toString(),
+      },
+      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : {},
+    );
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> resolveScreenAlert(
+    String alertId,
+  ) {
+    return postRequest(
+      '/alerts/resolve/$alertId',
+      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : {},
+    );
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> clearScreenAlerts() {
+    return postRequest(
+      '/alerts/clear-all',
+      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : {},
+    );
+  }
+
   /// Create a new alert
   Future<ApiResponse<Alert>> createAlert({
     required String title,

@@ -66,7 +66,13 @@ The backend uses PostgreSQL. To import the existing local SQLite data once, conf
 python backend/migrate_sqlite_to_postgres.py
 ```
 
-The import preserves user and device IDs and password hashes, checks that the PostgreSQL tables are empty, and leaves `backend/users.db` unchanged. For a new database, apply the SQL files in `backend/migrations/` in numeric order (`001` through `006`) using your PostgreSQL client. The API does not run database migrations automatically. On an existing database, apply any missing migrations before starting the corresponding feature.
+The import preserves user and device IDs and password hashes, checks that the PostgreSQL tables are empty, and leaves `backend/users.db` unchanged. Apply or verify all migrations with the idempotent runner from the project root:
+
+```powershell
+python backend/apply_migrations.py
+```
+
+It reads `DATABASE_URL` from `backend/.env` or the project `.env`, applies numbered migrations in order, and records them in `schema_migrations`. It never prints the connection string. It is safe to rerun.
 
 ### MQTT device control
 Device control requests are published by the authenticated backend to `home/device/{mqtt_client_id}/set` on the same HiveMQ broker used by the ESP32. Rotate any credential that was committed or shared in the HiveMQ Cloud console first. Put the new broker settings only in the untracked `.env` and local `scripts/secrets.h`, then restart the API and reflash the ESP32. The web app does not connect directly to a public broker or contain MQTT credentials.
@@ -82,7 +88,15 @@ Sensor ingestion from ESP32 firmware also requires `DEVICE_INGEST_API_KEY` to ma
 
 The API stores accounts, preferences, devices, readings, alerts, logs, and notifications in PostgreSQL. Without an ESP32, an authenticated user can create sensor readings at `POST /sensors/create` or energy readings at `POST /energy/readings`. Voltage/current readings use the configured thresholds; each out-of-range episode creates an alert and in-app notification, and returning to range resolves the open alert. Sensor history is available at `/sensors/all` and `/sensors/device/{device_id}`; energy history is at `/energy/history`. The authenticated routes also include `/alerts/list`, `/alerts/summary`, read/resolve, and clear operations. ESP32 firmware can post to `POST /ingest/energy?device_id=<registered-id>` and `POST /ingest/sensors?device_id=<registered-id>` using the `X-Device-API-Key` header; both routes require a registered Energy Monitor device and matching `DEVICE_INGEST_API_KEY` values in `backend/.env` and `scripts/secrets.h`.
 
-Apply or rerun the idempotent migrations `backend/migrations/002_app_features.sql`, `backend/migrations/004_sensor_thresholds.sql`, and `backend/migrations/005_push_notifications.sql` on an existing database before using sensors, energy history, thresholds, or push tokens. The settings page stores account-backed voltage/current thresholds. Manual readings sent to `POST /sensors/create` exercise the same threshold evaluator that can later be connected to firmware ingestion.
+The migration runner applies the schema needed by sensors, energy history, thresholds, alerts, and push tokens. The settings page stores account-backed voltage/current thresholds. Manual readings sent to `POST /sensors/create` exercise the same threshold evaluator used by firmware ingestion.
+
+To simulate an ESP32 with no board connected, register or open the account's Energy Monitor device, set `DEVICE_INGEST_API_KEY` and `ENERGY_DEVICE_ID` in `backend/.env` (the simulator loads local env files), then run:
+
+```powershell
+python scripts/simulate_device.py --count 3 --interval 2 --spike
+```
+
+The `--spike` option produces voltage/current values above typical thresholds to exercise alert creation. The simulator prints only success counts, not the API key.
 
 ### Push notifications (FCM)
 For mobile push delivery, enable Firebase Cloud Messaging and configure a Firebase Admin service-account JSON in the API host's `FIREBASE_SERVICE_ACCOUNT_JSON` environment variable (in `backend/.env` for local development). Keep this private key out of the Flutter app and source control. Apply `backend/migrations/005_push_notifications.sql` so the backend can store device tokens.

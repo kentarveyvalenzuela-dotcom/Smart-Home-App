@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'auth_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/auth_service.dart';
+import '../settings/settings_repository.dart';
 import '../services/config_service.dart';
 import '../services/notification_service.dart';
 import '../main.dart';
+import '../storage/preferences_token_store.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -14,7 +15,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final AuthService _authService = AuthService();
+  final SettingsRepository _settingsRepository = SettingsRepository();
   Map<String, dynamic> _profile = {};
   bool _isLoading = true;
   bool _notificationsEnabled = true;
@@ -38,17 +39,20 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadProfileAndPreferences() async {
     try {
       // Load the signed-in account profile from the backend.
-      final profile = await _authService.getUserProfile();
-      final prefs = await _authService.getUserPreferences();
-      final thresholds = await _authService.getSensorThresholds();
+      final profile = await _settingsRepository.getUserProfile();
+      final prefs = await _settingsRepository.getUserPreferences();
+      final thresholds = await _settingsRepository.getSensorThresholds();
       if (thresholds != null) {
         if (thresholds['configured'] == true) {
-          await ConfigService().setVoltageMin((thresholds['voltage_min'] as num).toDouble());
-          await ConfigService().setVoltageMax((thresholds['voltage_max'] as num).toDouble());
-          await ConfigService().setAmperageMax((thresholds['amperage_max'] as num).toDouble());
+          await ConfigService()
+              .setVoltageMin((thresholds['voltage_min'] as num).toDouble());
+          await ConfigService()
+              .setVoltageMax((thresholds['voltage_max'] as num).toDouble());
+          await ConfigService()
+              .setAmperageMax((thresholds['amperage_max'] as num).toDouble());
         } else {
           // Preserve thresholds that were saved locally before server support existed.
-          await _authService.updateSensorThresholds(
+          await _settingsRepository.updateSensorThresholds(
             voltageMin: ConfigService().voltageMin,
             voltageMax: ConfigService().voltageMax,
             amperageMax: ConfigService().amperageMax,
@@ -57,7 +61,7 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       final backendUrl = ConfigService().backendUrl;
 
-      final backendUser = await _authService.getCurrentUserProfile();
+      final backendUser = profile;
 
       if (mounted) {
         setState(() {
@@ -65,7 +69,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _profile = {
               'name': backendUser['name'] ?? profile?['name'] ?? 'User',
               'email': backendUser['email'] ?? profile?['email'] ?? '',
-              'provider': backendUser['provider'] ?? profile?['provider'] ?? 'email',
+              'provider':
+                  backendUser['provider'] ?? profile?['provider'] ?? 'email',
             };
             _isOAuthUser = backendUser['provider'] == 'google';
           } else if (profile != null) {
@@ -131,7 +136,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _updateProfile(String name, String email) async {
     setState(() => _isSavingProfile = true);
-    final result = await _authService.updateUserProfile(name, email);
+    final result = await _settingsRepository.updateUserProfile(name, email);
 
     if (result != null && mounted) {
       // Add notification for profile update
@@ -302,8 +307,10 @@ class _SettingsPageState extends State<SettingsPage> {
         return;
       }
       if (mounted) setState(() => _isSavingThresholds = true);
-      final saved = await _authService.updateSensorThresholds(
-        voltageMin: min, voltageMax: max, amperageMax: ConfigService().amperageMax);
+      final saved = await _settingsRepository.updateSensorThresholds(
+          voltageMin: min,
+          voltageMax: max,
+          amperageMax: ConfigService().amperageMax);
       if (saved == null) {
         if (mounted) {
           setState(() => _isSavingThresholds = false);
@@ -368,10 +375,10 @@ class _SettingsPageState extends State<SettingsPage> {
         return;
       }
       if (mounted) setState(() => _isSavingThresholds = true);
-      final saved = await _authService.updateSensorThresholds(
-        voltageMin: ConfigService().voltageMin,
-        voltageMax: ConfigService().voltageMax,
-        amperageMax: result);
+      final saved = await _settingsRepository.updateSensorThresholds(
+          voltageMin: ConfigService().voltageMin,
+          voltageMax: ConfigService().voltageMax,
+          amperageMax: result);
       if (saved == null) {
         if (mounted) {
           setState(() => _isSavingThresholds = false);
@@ -413,8 +420,8 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     setState(() => _isChangingPassword = true);
-    final result =
-        await _authService.changePassword(currentPwd, newPwd, confirmPwd);
+    final result = await _settingsRepository.changePassword(
+        currentPwd, newPwd, confirmPwd);
 
     if (mounted) {
       setState(() => _isChangingPassword = false);
@@ -525,7 +532,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     // Only clear auth tokens, NOT appliances/devices cache
     // Devices will sync from backend when user logs back in
-    await prefs.remove('access_token');
+    await PreferencesTokenStore().clearAccessToken();
     await prefs.remove('user');
     // Note: We keep 'appliances' and 'deleted_device_ids' so they persist across login/logout
 
@@ -541,10 +548,13 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _isSavingTwoFactor = true);
     try {
       if (enable) {
-        final started = await _authService.enable2FA(_profile['email']?.toString() ?? '');
+        final started = await _settingsRepository
+            .enable2FA(_profile['email']?.toString() ?? '');
         if (!mounted) return;
         if (started?['success'] != true) {
-          throw Exception(started?['error'] ?? started?['detail'] ?? 'Could not send the verification code');
+          throw Exception(started?['error'] ??
+              started?['detail'] ??
+              'Could not send the verification code');
         }
         final codeController = TextEditingController();
         final code = await showDialog<String>(
@@ -555,31 +565,43 @@ class _SettingsPageState extends State<SettingsPage> {
               controller: codeController,
               keyboardType: TextInputType.number,
               maxLength: 6,
-              decoration: const InputDecoration(labelText: '6-digit email code'),
+              decoration:
+                  const InputDecoration(labelText: '6-digit email code'),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-              FilledButton(onPressed: () => Navigator.pop(dialogContext, codeController.text.trim()), child: const Text('Verify')),
+              TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel')),
+              FilledButton(
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, codeController.text.trim()),
+                  child: const Text('Verify')),
             ],
           ),
         );
         codeController.dispose();
         if (code == null) return;
-        final verified = await _authService.verify2FACode(code);
+        final verified = await _settingsRepository.verify2FACode(code);
         if (verified?['success'] != true) {
-          throw Exception(verified?['error'] ?? verified?['detail'] ?? 'The code is invalid or expired');
+          throw Exception(verified?['error'] ??
+              verified?['detail'] ??
+              'The code is invalid or expired');
         }
       } else {
-        final disabled = await _authService.disable2FA('');
+        final disabled = await _settingsRepository.disable2FA('');
         if (disabled?['success'] != true) {
-          throw Exception(disabled?['error'] ?? disabled?['detail'] ?? 'Could not turn off two-factor authentication');
+          throw Exception(disabled?['error'] ??
+              disabled?['detail'] ??
+              'Could not turn off two-factor authentication');
         }
       }
       if (mounted) setState(() => _twoFactorEnabled = enable);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Two-factor update failed: $error'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Two-factor update failed: $error'),
+              backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -593,7 +615,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _isSavingPreferences = true;
     });
 
-    await _authService.updateUserPreferences({
+    await _settingsRepository.updateUserPreferences({
       'notifications_enabled': enable,
       'email_alerts': _emailAlertsEnabled,
     });
@@ -618,7 +640,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _isSavingPreferences = true;
     });
 
-    await _authService.updateUserPreferences({
+    await _settingsRepository.updateUserPreferences({
       'notifications_enabled': _notificationsEnabled,
       'email_alerts': enable,
     });
@@ -826,8 +848,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.primaryBlue))
+                                  strokeWidth: 2, color: AppColors.primaryBlue))
                           : Icon(Icons.chevron_right_rounded,
                               color: Colors.grey.shade400),
                       onTap: _isSavingThresholds
@@ -845,8 +866,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.primaryBlue))
+                                  strokeWidth: 2, color: AppColors.primaryBlue))
                           : Icon(Icons.chevron_right_rounded,
                               color: Colors.grey.shade400),
                       onTap: _isSavingThresholds
@@ -1334,7 +1354,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     try {
-      final result = await _authService.deleteAccount();
+      final result = await _settingsRepository.deleteAccount();
 
       if (mounted) {
         Navigator.of(context).pop();

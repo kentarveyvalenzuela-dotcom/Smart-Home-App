@@ -3,6 +3,21 @@
 **Version:** 1.0.0  
 **Project Name:** BRIX - Smart Home IoT System
 
+## Current Phase Status (November 24, 2026)
+
+This status supersedes the 2025 completion percentages and "production ready" statement in the historical report below. It is based on the current source/configuration review; an end-to-end run has not been performed in this update.
+
+| Phase | Status | Remaining work |
+|---|---|---|
+| Authentication and account security | Implemented; Google sign-in was confirmed working by the user | Re-run validation after recent password-hash changes |
+| App, backend APIs, sensor history, and threshold alerts | Implemented in source; all six PostgreSQL migrations have now been applied to the configured database | Verify alert/readings flow in the running app |
+| In-app notifications | Implemented in source | Confirm in the running app/database |
+| Mobile push notifications | Android Firebase config file and backend Admin credential are present; token migration is applied | Confirm an Android device token and actual delivery; iOS and web push are not configured |
+| ESP32 live monitoring and MQTT control | Firmware/backend paths are present; a no-board simulator is available | Register the classmate's board, match its device ID/API key/broker, then verify readings and commands on the physical board |
+| Release/deployment | Not yet verified | Configure deployment environment and complete end-to-end checks |
+
+The feature tables and completion claims in the remainder of this report are a historical snapshot and should not be read as proof that hardware integration or production deployment has been tested.
+
 ---
 
 ## 📊 EXECUTIVE SUMMARY

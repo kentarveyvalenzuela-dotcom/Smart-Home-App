@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
-import '../services/auth_service.dart';
+import '../services/alert_service.dart';
 import '../services/notification_service.dart';
 import '../main.dart';
 
@@ -15,7 +15,7 @@ class NotificationsPage extends StatefulWidget {
 
 class _NotificationsPageState extends State<NotificationsPage>
     with TickerProviderStateMixin {
-  final AuthService _authService = AuthService();
+  final AlertService _alertService = AlertService();
   final NotificationService _notificationService = NotificationService();
 
   // Alerts state
@@ -81,14 +81,17 @@ class _NotificationsPageState extends State<NotificationsPage>
     setState(() => _isLoadingAlerts = true);
 
     try {
-      final summaryData = await _authService.getAlertsSummary();
-      final listData = await _authService.getAlertsList(
+      final summaryResponse = await _alertService.getScreenSummary();
+      final listResponse = await _alertService.getScreenAlerts(
         skip: _currentPage * _pageSize,
         limit: _pageSize,
         resolved: _showUnresolvedOnly ? false : null,
       );
 
-      if (summaryData == null || listData == null) {
+      final summaryData = summaryResponse.data;
+      final listData = listResponse.data;
+      if (!summaryResponse.success || !listResponse.success ||
+          summaryData == null || listData == null) {
         if (mounted) {
           setState(() {
             _isLoadingAlerts = false;
@@ -122,9 +125,10 @@ class _NotificationsPageState extends State<NotificationsPage>
   }
 
   Future<void> _resolveAlert(String alertId) async {
-    final result = await _authService.resolveAlert(alertId);
+    final response = await _alertService.resolveScreenAlert(alertId);
+    final result = response.data;
 
-    if (result?['success'] == true && mounted) {
+    if (response.success && result?['success'] != false && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Alert resolved'),
@@ -159,10 +163,11 @@ class _NotificationsPageState extends State<NotificationsPage>
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
-              final result = await _authService.clearAllAlerts();
+              final response = await _alertService.clearScreenAlerts();
+              final result = response.data;
 
               if (!mounted) return;
-              if (result != null && result['success'] == true) {
+              if (response.success && result != null && result['success'] != false) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(

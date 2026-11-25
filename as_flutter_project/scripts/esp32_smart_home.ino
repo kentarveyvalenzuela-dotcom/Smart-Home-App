@@ -1,4 +1,4 @@
-/*
+﻿/*
  * ============================================================================
  * ESP32 SMART HOME - UNIFIED FIRMWARE
  * ============================================================================
@@ -137,6 +137,7 @@ const char* sensor_status_topic = "sensors/status";
 // ============================================================================
 
 WiFiClientSecure espClient;
+WiFiClient apiClient;
 PubSubClient mqttClient(espClient);
 
 // Timing
@@ -876,7 +877,12 @@ void uploadEnergyToPostgres() {
   if (WiFi.status() != WL_CONNECTED) return;
   HTTPClient http;
   String url = String(API_BASE_URL) + "/ingest/energy?device_id=" + String(energyDeviceId);
-  http.begin(url);
+  http.setConnectTimeout(5000);
+  http.setTimeout(10000);
+  if (!http.begin(apiClient, url)) {
+    Serial.println("[API] Energy upload failed: HTTP client initialization");
+    return;
+  }
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-API-Key", DEVICE_INGEST_API_KEY);
   String json = "{\"voltage\":" + String(voltage, 2) +
@@ -889,7 +895,7 @@ void uploadEnergyToPostgres() {
                 ",\"ch4\":" + String(current_ch4, 2) + "}}";
   int httpCode = http.POST(json);
   if (httpCode >= 200 && httpCode < 300) Serial.println("[API] Energy upload OK");
-  else { Serial.print("[API] Energy upload failed: "); Serial.println(httpCode); }
+  else { Serial.print("[API] Energy upload failed: "); Serial.print(httpCode); Serial.print(" ("); Serial.print(http.errorToString(httpCode)); Serial.println(")"); }
   http.end();
 }
 
@@ -897,7 +903,12 @@ void uploadSensorReadingsToPostgres() {
   if (WiFi.status() != WL_CONNECTED) return;
   HTTPClient http;
   String url = String(API_BASE_URL) + "/ingest/sensors?device_id=" + String(energyDeviceId);
-  http.begin(url);
+  http.setConnectTimeout(5000);
+  http.setTimeout(10000);
+  if (!http.begin(apiClient, url)) {
+    Serial.println("[API] Sensor readings upload failed: HTTP client initialization");
+    return;
+  }
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-API-Key", DEVICE_INGEST_API_KEY);
   String json = "{\"readings\":[";

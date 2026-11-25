@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'api_service.dart';
 import 'config_service.dart';
+import '../auth/auth_repository.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../storage/preferences_token_store.dart';
+import '../storage/token_store.dart';
+import '../settings/settings_repository.dart';
 
 const _googleClientId = String.fromEnvironment(
   'GOOGLE_CLIENT_ID',
@@ -18,6 +21,15 @@ class AuthService {
   factory AuthService() => _instance;
 
   AuthService._internal();
+
+  final TokenStore _tokenStore = PreferencesTokenStore();
+  final ApiService _apiService = ApiService();
+  final AuthRepository _authRepository = AuthRepository();
+  final SettingsRepository _settingsRepository = SettingsRepository();
+  final bool _useAuthRepository = true;
+
+  /// Shared token persistence used by AuthService and ApiService clients.
+  TokenStore get tokenStore => _tokenStore;
 
   String get _baseUrl => ConfigService().backendUrl;
 
@@ -82,6 +94,9 @@ class AuthService {
   // Email/Password Registration - Updated for new backend
   Future<Map<String, dynamic>?> signUpWithEmail(
       String email, String password, String name) async {
+    if (_useAuthRepository) {
+      return _authRepository.registerWithEmail(email, password, name);
+    }
     try {
       final backend = ConfigService();
       if (!backend.hasValidBackendUrl) {
@@ -92,7 +107,7 @@ class AuthService {
         };
       }
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/auth/register'),
             headers: {'Content-Type': 'application/json'},
@@ -149,6 +164,11 @@ class AuthService {
   // Email/Password Sign In - Updated for new backend
   Future<Map<String, dynamic>?> signInWithEmail(
       String email, String password) async {
+    if (_useAuthRepository) {
+      final result = await _authRepository.signInWithEmail(email, password);
+      _syncCurrentUser(result);
+      return result;
+    }
     try {
       final backend = ConfigService();
       if (!backend.hasValidBackendUrl) {
@@ -159,7 +179,7 @@ class AuthService {
         };
       }
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/auth/login'),
             headers: {'Content-Type': 'application/json'},
@@ -219,8 +239,11 @@ class AuthService {
 
   Future<Map<String, dynamic>?> verifyEmailAddress(
       String email, String code) async {
+    if (_useAuthRepository) {
+      return _authRepository.verifyEmailAddress(email, code);
+    }
     try {
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/auth/verify-email'),
             headers: {'Content-Type': 'application/json'},
@@ -242,8 +265,11 @@ class AuthService {
 
   // Password Reset Request
   Future<Map<String, dynamic>?> requestPasswordReset(String email) async {
+    if (_useAuthRepository) {
+      return _authRepository.requestPasswordReset(email);
+    }
     try {
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/auth/password-reset'),
             headers: {'Content-Type': 'application/json'},
@@ -282,8 +308,11 @@ class AuthService {
 
   // Verify Password Reset Token
   Future<Map<String, dynamic>?> verifyResetToken(String token) async {
+    if (_useAuthRepository) {
+      return _authRepository.verifyResetToken(token);
+    }
     try {
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/auth/password-reset/verify'),
             headers: {'Content-Type': 'application/json'},
@@ -309,8 +338,11 @@ class AuthService {
   // Reset Password with Token
   Future<Map<String, dynamic>?> resetPassword(
       String token, String newPassword) async {
+    if (_useAuthRepository) {
+      return _authRepository.resetPassword(token, newPassword);
+    }
     try {
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/auth/password-reset/confirm'),
             headers: {'Content-Type': 'application/json'},
@@ -335,10 +367,20 @@ class AuthService {
 
   // Get current user profile
   Future<Map<String, dynamic>?> getCurrentUser() async {
+    if (_useAuthRepository) {
+      final result = await _authRepository.getCurrentUser();
+      _syncCurrentUser(result);
+      if (result?['success'] != true) {
+        _currentUserId = null;
+        _currentUserEmail = null;
+        _currentUserName = null;
+      }
+      return result;
+    }
     try {
       final headers = await getAuthHeaders();
 
-      final response = await http
+      final response = await _apiService
           .get(
             Uri.parse('$_baseUrl/auth/user'),
             headers: headers,
@@ -390,12 +432,17 @@ class AuthService {
   /// Exchanges a Google Identity Services credential for an app session.
   Future<Map<String, dynamic>?> signInWithGoogleAccount(
       GoogleSignInAccount account) async {
+    if (_useAuthRepository) {
+      final result = await _authRepository.exchangeGoogleAccount(account);
+      _syncCurrentUser(result);
+      return result;
+    }
     try {
       final idToken = (await account.authentication).idToken;
       if (idToken == null) {
         return {'success': false, 'error': 'Google did not return an ID token'};
       }
-      final response = await http
+      final response = await _apiService
           .post(Uri.parse('$_baseUrl/auth/google-signin'),
               headers: {'Content-Type': 'application/json'},
               body: json.encode({'id_token': idToken}))
@@ -440,6 +487,13 @@ class AuthService {
 
   // Sign Out
   Future<void> signOut() async {
+    if (_useAuthRepository) {
+      await _authRepository.logout();
+      _currentUserId = null;
+      _currentUserEmail = null;
+      _currentUserName = null;
+      return;
+    }
     try {
       // Clear local user data
       _currentUserId = null;
@@ -454,13 +508,12 @@ class AuthService {
   }
 
   Future<String?> getAccessToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('access_token');
+    return _tokenStore.readAccessToken();
   }
 
   Future<Map<String, dynamic>?> getCurrentUserProfile() async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/auth/me'),
+      final response = await _apiService.get(Uri.parse('$_baseUrl/auth/me'),
           headers: await getAuthHeaders());
       if (response.statusCode != 200) return null;
       final data = json.decode(response.body);
@@ -489,7 +542,7 @@ class AuthService {
     try {
       final headers = await getAuthHeaders();
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/devices/register'),
             headers: headers,
@@ -527,7 +580,7 @@ class AuthService {
     try {
       final headers = await getAuthHeaders();
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/devices/$deviceId/configure'),
             headers: headers,
@@ -563,7 +616,7 @@ class AuthService {
   Future<Map<String, dynamic>?> ensureEnergyDeviceRegistered() async {
     try {
       final headers = await getAuthHeaders();
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/devices/register-energy'),
             headers: headers,
@@ -595,7 +648,7 @@ class AuthService {
       debugPrint(
           '📤 Registering device: name=$deviceName, mqttClientId=$mqttClientId');
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/devices/register'),
             headers: headers,
@@ -653,7 +706,7 @@ class AuthService {
 
       debugPrint('🗑️ Deleting device from backend: $deviceId');
 
-      final response = await http.delete(
+      final response = await _apiService.delete(
         Uri.parse('$_baseUrl/devices/$deviceId'),
         headers: {
           'Authorization': 'Bearer $token',
@@ -701,7 +754,7 @@ class AuthService {
       debugPrint(
           '📤 Sending control to backend: device=$deviceId, pin=$pinNumber, action=$action');
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/devices/control'),
             headers: headers,
@@ -758,7 +811,7 @@ class AuthService {
     try {
       final headers = await getAuthHeaders();
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/sensors/data'),
             headers: headers,
@@ -801,7 +854,7 @@ class AuthService {
           ? '$_baseUrl/sensors/all?limit=100'
           : '$_baseUrl/sensors/device/$deviceId/latest';
 
-      final response = await http
+      final response = await _apiService
           .get(
             Uri.parse(url),
             headers: headers,
@@ -896,7 +949,7 @@ class AuthService {
       final uri = Uri.parse('$_baseUrl/logs/list')
           .replace(queryParameters: queryParams);
 
-      final response = await http.get(
+      final response = await _apiService.get(
         uri,
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
@@ -970,7 +1023,7 @@ class AuthService {
         },
       );
 
-      final response = await http.get(
+      final response = await _apiService.get(
         uri,
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
@@ -1004,7 +1057,7 @@ class AuthService {
       final token = await getAccessToken();
       if (token == null) return false;
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/logs/create'),
             headers: {
@@ -1034,7 +1087,7 @@ class AuthService {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.get(
+      final response = await _apiService.get(
         Uri.parse('$_baseUrl/alerts/summary'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
@@ -1068,7 +1121,7 @@ class AuthService {
         if (resolved != null) 'resolved': resolved.toString(),
       };
 
-      final response = await http.get(
+      final response = await _apiService.get(
         Uri.parse('$_baseUrl/alerts/list')
             .replace(queryParameters: queryParams),
         headers: {'Authorization': 'Bearer $token'},
@@ -1089,7 +1142,7 @@ class AuthService {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.post(
+      final response = await _apiService.post(
         Uri.parse('$_baseUrl/alerts/resolve/$alertId'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
@@ -1109,7 +1162,7 @@ class AuthService {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.post(
+      final response = await _apiService.post(
         Uri.parse('$_baseUrl/alerts/clear-all'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
@@ -1126,11 +1179,12 @@ class AuthService {
 
   // ====================== SETTINGS API ======================
   Future<Map<String, dynamic>?> getUserProfile() async {
+    if (_useAuthRepository) return _settingsRepository.getUserProfile();
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.get(
+      final response = await _apiService.get(
         Uri.parse('$_baseUrl/settings/profile'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
@@ -1147,11 +1201,14 @@ class AuthService {
 
   Future<Map<String, dynamic>?> updateUserProfile(
       String name, String email) async {
+    if (_useAuthRepository) {
+      return _settingsRepository.updateUserProfile(name, email);
+    }
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/settings/profile/update'),
             headers: {
@@ -1177,11 +1234,18 @@ class AuthService {
     String newPassword,
     String confirmPassword,
   ) async {
+    if (_useAuthRepository) {
+      return _settingsRepository.changePassword(
+        currentPassword,
+        newPassword,
+        confirmPassword,
+      );
+    }
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/settings/password/change'),
             headers: {
@@ -1208,11 +1272,12 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>?> getUserPreferences() async {
+    if (_useAuthRepository) return _settingsRepository.getUserPreferences();
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.get(
+      final response = await _apiService.get(
         Uri.parse('$_baseUrl/settings/preferences'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
@@ -1229,11 +1294,14 @@ class AuthService {
 
   Future<Map<String, dynamic>?> updateUserPreferences(
       Map<String, dynamic> preferences) async {
+    if (_useAuthRepository) {
+      return _settingsRepository.updateUserPreferences(preferences);
+    }
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/settings/preferences/update'),
             headers: {
@@ -1255,10 +1323,11 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>?> getSensorThresholds() async {
+    if (_useAuthRepository) return _settingsRepository.getSensorThresholds();
     try {
       final token = await getAccessToken();
       if (token == null) return null;
-      final response = await http
+      final response = await _apiService
           .get(Uri.parse('$_baseUrl/settings/sensor-thresholds'), headers: {
         'Authorization': 'Bearer $token'
       }).timeout(const Duration(seconds: 10));
@@ -1277,10 +1346,17 @@ class AuthService {
     required double voltageMax,
     required double amperageMax,
   }) async {
+    if (_useAuthRepository) {
+      return _settingsRepository.updateSensorThresholds(
+        voltageMin: voltageMin,
+        voltageMax: voltageMax,
+        amperageMax: amperageMax,
+      );
+    }
     try {
       final token = await getAccessToken();
       if (token == null) return null;
-      final response = await http
+      final response = await _apiService
           .put(Uri.parse('$_baseUrl/settings/sensor-thresholds'),
               headers: {
                 'Authorization': 'Bearer $token',
@@ -1303,12 +1379,13 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>?> deleteAccount() async {
+    if (_useAuthRepository) return _settingsRepository.deleteAccount();
     try {
       // First, try to delete from backend
       final token = await getAccessToken();
       if (token != null) {
         try {
-          final response = await http.delete(
+          final response = await _apiService.delete(
             Uri.parse('$_baseUrl/settings/account'),
             headers: {'Authorization': 'Bearer $token'},
           ).timeout(const Duration(seconds: 10));
@@ -1335,11 +1412,12 @@ class AuthService {
 
   // ====================== 2FA API ======================
   Future<Map<String, dynamic>?> get2FAStatus() async {
+    if (_useAuthRepository) return _settingsRepository.get2FAStatus();
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http.get(
+      final response = await _apiService.get(
         Uri.parse('$_baseUrl/settings/2fa/status'),
         headers: {'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
@@ -1355,11 +1433,12 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>?> enable2FA(String email) async {
+    if (_useAuthRepository) return _settingsRepository.enable2FA(email);
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/settings/2fa/enable'),
             headers: {
@@ -1386,11 +1465,12 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>?> verify2FACode(String code) async {
+    if (_useAuthRepository) return _settingsRepository.verify2FACode(code);
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/settings/2fa/verify'),
             headers: {
@@ -1414,11 +1494,12 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>?> disable2FA(String password) async {
+    if (_useAuthRepository) return _settingsRepository.disable2FA(password);
     try {
       final token = await getAccessToken();
       if (token == null) return null;
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/settings/2fa/disable'),
             headers: {
@@ -1452,7 +1533,7 @@ class AuthService {
         return {'success': false, 'error': 'Not authenticated'};
       }
 
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/devices/register'),
             headers: {
@@ -1486,7 +1567,7 @@ class AuthService {
   Future<Map<String, dynamic>?> verifyDeviceOTP(
       String deviceId, String otp) async {
     try {
-      final response = await http
+      final response = await _apiService
           .post(
             Uri.parse('$_baseUrl/devices/verify-otp'),
             headers: {'Content-Type': 'application/json'},
@@ -1534,8 +1615,7 @@ class AuthService {
 
   // Private methods
   Future<void> _storeToken(String accessToken) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('access_token', accessToken);
+    await _tokenStore.saveAccessToken(accessToken);
   }
 
   /// Public helper: store an access token (from OAuth callback) and attempt to load the user
@@ -1551,7 +1631,14 @@ class AuthService {
   }
 
   Future<void> _clearToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('access_token');
+    await _tokenStore.clearAccessToken();
+  }
+
+  void _syncCurrentUser(Map<String, dynamic>? result) {
+    final user = result?['user'];
+    if (user is! Map) return;
+    _currentUserId = user['id']?.toString();
+    _currentUserEmail = user['email']?.toString();
+    _currentUserName = user['name']?.toString();
   }
 }

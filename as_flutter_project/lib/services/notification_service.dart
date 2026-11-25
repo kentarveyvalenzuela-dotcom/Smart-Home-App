@@ -3,11 +3,10 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:http/http.dart' as http;
+import 'api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'auth_service.dart';
-import 'config_service.dart';
+import '../storage/preferences_token_store.dart';
+import '../storage/token_store.dart';
 
 enum NotificationType {
   googleSignIn,
@@ -39,14 +38,20 @@ class ActivityNotification {
     this.metadata,
   });
 
-  factory ActivityNotification.fromJson(Map<String, dynamic> json) => ActivityNotification(
+  factory ActivityNotification.fromJson(Map<String, dynamic> json) =>
+      ActivityNotification(
         id: json['id']?.toString() ?? '',
-        type: NotificationType.values.firstWhere((e) => e.name == json['type'], orElse: () => NotificationType.deviceToggle),
+        type: NotificationType.values.firstWhere((e) => e.name == json['type'],
+            orElse: () => NotificationType.deviceToggle),
         title: json['title']?.toString() ?? '',
         message: json['message']?.toString() ?? '',
-        timestamp: DateTime.tryParse((json['timestamp'] ?? json['created_at'] ?? '').toString()) ?? DateTime.now(),
+        timestamp: DateTime.tryParse(
+                (json['timestamp'] ?? json['created_at'] ?? '').toString()) ??
+            DateTime.now(),
         isRead: json['isRead'] == true || json['is_read'] == true,
-        metadata: json['metadata'] is Map ? Map<String, dynamic>.from(json['metadata']) : null,
+        metadata: json['metadata'] is Map
+            ? Map<String, dynamic>.from(json['metadata'])
+            : null,
       );
 
   Map<String, dynamic> toJson() => {
@@ -60,8 +65,13 @@ class ActivityNotification {
       };
 
   ActivityNotification copyWith({bool? isRead}) => ActivityNotification(
-        id: id, type: type, title: title, message: message, timestamp: timestamp,
-        isRead: isRead ?? this.isRead, metadata: metadata,
+        id: id,
+        type: type,
+        title: title,
+        message: message,
+        timestamp: timestamp,
+        isRead: isRead ?? this.isRead,
+        metadata: metadata,
       );
 }
 
@@ -69,24 +79,40 @@ class ActivityNotification {
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
-  NotificationService._internal();
+  NotificationService._internal()
+      : _apiService = ApiService(),
+        _tokenStore = PreferencesTokenStore();
+
+  /// Test-only constructor; production callers continue using the singleton.
+  NotificationService.forTesting({
+    ApiService? apiService,
+    TokenStore? tokenStore,
+  })  : _apiService = apiService ?? ApiService(),
+        _tokenStore = tokenStore ?? PreferencesTokenStore();
 
   final List<ActivityNotification> _notifications = [];
-  final _notificationStreamController = StreamController<List<ActivityNotification>>.broadcast();
+  final _notificationStreamController =
+      StreamController<List<ActivityNotification>>.broadcast();
   Timer? _pollTimer;
   StreamSubscription<String>? _pushTokenSubscription;
   StreamSubscription<RemoteMessage>? _foregroundPushSubscription;
   String? _registeredPushToken;
   bool _initialized = false;
+  final ApiService _apiService;
+  final TokenStore _tokenStore;
 
-  Stream<List<ActivityNotification>> get notificationStream => _notificationStreamController.stream;
-  List<ActivityNotification> get notifications => List.unmodifiable(_notifications);
+  Stream<List<ActivityNotification>> get notificationStream =>
+      _notificationStreamController.stream;
+  List<ActivityNotification> get notifications =>
+      List.unmodifiable(_notifications);
   int get unreadCount => _notifications.where((n) => !n.isRead).length;
 
   Future<Map<String, String>> _headers() async {
-    final headers = await AuthService().getAuthHeaders();
-    headers['Content-Type'] = 'application/json';
-    return headers;
+    final token = await _tokenStore.readAccessToken();
+    return {
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+    };
   }
 
   Future<void> initialize() async {
@@ -101,7 +127,8 @@ class NotificationService {
     if (!kIsWeb) {
       try {
         final messaging = FirebaseMessaging.instance;
-        _pushTokenSubscription = messaging.onTokenRefresh.listen(_registerPushToken);
+        _pushTokenSubscription =
+            messaging.onTokenRefresh.listen(_registerPushToken);
         _foregroundPushSubscription = FirebaseMessaging.onMessage.listen((_) {
           _syncFromBackend();
         });
@@ -127,12 +154,18 @@ class NotificationService {
       final headers = await _headers();
       if (!headers.containsKey('Authorization')) return;
       await _registerPushToken();
-      final response = await http.get(Uri.parse('${ConfigService().backendUrl}/notifications?limit=100'), headers: headers).timeout(const Duration(seconds: 8));
+      final response = await _apiService
+          .get(
+            Uri.parse('${_apiService.baseUrl}/notifications?limit=100'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) return;
       final items = jsonDecode(response.body) as List;
       _notifications
         ..clear()
-        ..addAll(items.map((item) => ActivityNotification.fromJson(Map<String, dynamic>.from(item as Map))));
+        ..addAll(items.map((item) => ActivityNotification.fromJson(
+            Map<String, dynamic>.from(item as Map))));
       await _saveToLocalStorage();
       _notificationStreamController.add(List.unmodifiable(_notifications));
     } catch (e) {
@@ -146,11 +179,14 @@ class NotificationService {
       final headers = await _headers();
       if (!headers.containsKey('Authorization')) return;
       final settings = await FirebaseMessaging.instance.requestPermission(
-        alert: true, badge: true, sound: true,
+        alert: true,
+        badge: true,
+        sound: true,
       );
       if (settings.authorizationStatus == AuthorizationStatus.denied) return;
       if (defaultTargetPlatform == TargetPlatform.iOS) {
-        await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        await FirebaseMessaging.instance
+            .setForegroundNotificationPresentationOptions(
           alert: true,
           badge: true,
           sound: true,
@@ -158,20 +194,28 @@ class NotificationService {
         String? apnsToken;
         for (var attempt = 0; attempt < 10 && apnsToken == null; attempt++) {
           apnsToken = await FirebaseMessaging.instance.getAPNSToken();
-          if (apnsToken == null) await Future<void>.delayed(const Duration(milliseconds: 500));
+          if (apnsToken == null) {
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+          }
         }
         if (apnsToken == null) {
           debugPrint('Push token registration waiting for an APNs token.');
           return;
         }
       }
-      final token = refreshedToken ?? await FirebaseMessaging.instance.getToken();
-      if (token == null || token.isEmpty || token == _registeredPushToken) return;
-      final response = await http.post(
-        Uri.parse('${ConfigService().backendUrl}/notifications/device-token'),
-        headers: headers,
-        body: jsonEncode({'token': token, 'platform': defaultTargetPlatform.name}),
-      ).timeout(const Duration(seconds: 8));
+      final token =
+          refreshedToken ?? await FirebaseMessaging.instance.getToken();
+      if (token == null || token.isEmpty || token == _registeredPushToken) {
+        return;
+      }
+      final response = await _apiService
+          .post(
+            Uri.parse('${_apiService.baseUrl}/notifications/device-token'),
+            headers: headers,
+            body: jsonEncode(
+                {'token': token, 'platform': defaultTargetPlatform.name}),
+          )
+          .timeout(const Duration(seconds: 8));
       if (response.statusCode == 200) _registeredPushToken = token;
     } catch (e) {
       // Firebase can be unconfigured for a build target; in-app notifications still work.
@@ -179,39 +223,100 @@ class NotificationService {
     }
   }
 
-  Future<void> addGoogleSignInNotification(String email) => _addNotification(type: NotificationType.googleSignIn, title: 'Google Sign-In', message: 'Successfully signed in with Google account: $email', metadata: {'email': email});
-  Future<void> addEmailSignInNotification(String email) => _addNotification(type: NotificationType.emailSignIn, title: 'Email Sign-In', message: 'Successfully signed in with email: $email', metadata: {'email': email});
-  Future<void> addPasswordChangeNotification() => _addNotification(type: NotificationType.passwordChange, title: 'Password Changed', message: 'Your password has been successfully changed');
-  Future<void> addDeviceAddNotification(String deviceName) => _addNotification(type: NotificationType.deviceAdd, title: 'Device Added', message: 'New device "$deviceName" has been added to your smart home', metadata: {'deviceName': deviceName});
-  Future<void> addDeviceDeleteNotification(String deviceName) => _addNotification(type: NotificationType.deviceDelete, title: 'Device Removed', message: 'Device "$deviceName" has been removed from your smart home', metadata: {'deviceName': deviceName});
-  Future<void> addProfileUpdateNotification() => _addNotification(type: NotificationType.profileUpdate, title: 'Profile Updated', message: 'Your profile information has been updated');
-  Future<void> addLogoutNotification() => _addNotification(type: NotificationType.logout, title: 'Signed Out', message: 'You have been signed out of your account');
+  Future<void> addGoogleSignInNotification(String email) => _addNotification(
+      type: NotificationType.googleSignIn,
+      title: 'Google Sign-In',
+      message: 'Successfully signed in with Google account: $email',
+      metadata: {'email': email});
+  Future<void> addEmailSignInNotification(String email) => _addNotification(
+      type: NotificationType.emailSignIn,
+      title: 'Email Sign-In',
+      message: 'Successfully signed in with email: $email',
+      metadata: {'email': email});
+  Future<void> addPasswordChangeNotification() => _addNotification(
+      type: NotificationType.passwordChange,
+      title: 'Password Changed',
+      message: 'Your password has been successfully changed');
+  Future<void> addDeviceAddNotification(String deviceName) => _addNotification(
+      type: NotificationType.deviceAdd,
+      title: 'Device Added',
+      message: 'New device "$deviceName" has been added to your smart home',
+      metadata: {'deviceName': deviceName});
+  Future<void> addDeviceDeleteNotification(String deviceName) =>
+      _addNotification(
+          type: NotificationType.deviceDelete,
+          title: 'Device Removed',
+          message: 'Device "$deviceName" has been removed from your smart home',
+          metadata: {'deviceName': deviceName});
+  Future<void> addProfileUpdateNotification() => _addNotification(
+      type: NotificationType.profileUpdate,
+      title: 'Profile Updated',
+      message: 'Your profile information has been updated');
+  Future<void> addLogoutNotification() => _addNotification(
+      type: NotificationType.logout,
+      title: 'Signed Out',
+      message: 'You have been signed out of your account');
 
-  Future<void> addDeviceToggleNotification({required String deviceName, required String action, String? location}) {
+  Future<void> addDeviceToggleNotification(
+      {required String deviceName, required String action, String? location}) {
     final locationText = location?.isNotEmpty == true ? ' in $location' : '';
-    final actionText = action.toUpperCase() == 'ON' ? 'turned ON' : 'turned OFF';
-    return _addNotification(type: NotificationType.deviceToggle, title: 'Device Control', message: 'Your $deviceName$locationText has been $actionText', metadata: {'deviceName': deviceName, 'action': action, 'location': location});
+    final actionText =
+        action.toUpperCase() == 'ON' ? 'turned ON' : 'turned OFF';
+    return _addNotification(
+        type: NotificationType.deviceToggle,
+        title: 'Device Control',
+        message: 'Your $deviceName$locationText has been $actionText',
+        metadata: {
+          'deviceName': deviceName,
+          'action': action,
+          'location': location
+        });
   }
 
-  Future<void> _addNotification({required NotificationType type, required String title, required String message, Map<String, dynamic>? metadata}) async {
-    final notification = ActivityNotification(id: DateTime.now().millisecondsSinceEpoch.toString(), type: type, title: title, message: message, timestamp: DateTime.now(), metadata: metadata);
+  Future<void> _addNotification(
+      {required NotificationType type,
+      required String title,
+      required String message,
+      Map<String, dynamic>? metadata}) async {
+    final notification = ActivityNotification(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        type: type,
+        title: title,
+        message: message,
+        timestamp: DateTime.now(),
+        metadata: metadata);
     _notifications.insert(0, notification);
-    if (_notifications.length > 100) _notifications.removeRange(100, _notifications.length);
+    if (_notifications.length > 100) {
+      _notifications.removeRange(100, _notifications.length);
+    }
     await _saveToLocalStorage();
     _notificationStreamController.add(List.unmodifiable(_notifications));
     try {
       final headers = await _headers();
       if (headers.containsKey('Authorization')) {
-        final response = await http.post(Uri.parse('${ConfigService().backendUrl}/notifications'), headers: headers, body: jsonEncode({'type': type.name, 'title': title, 'message': message, 'metadata': metadata ?? {}})).timeout(const Duration(seconds: 8));
+        final response = await _apiService
+            .post(Uri.parse('${_apiService.baseUrl}/notifications'),
+                headers: headers,
+                body: jsonEncode({
+                  'type': type.name,
+                  'title': title,
+                  'message': message,
+                  'metadata': metadata ?? {}
+                }))
+            .timeout(const Duration(seconds: 8));
         if (response.statusCode == 200) {
-          final saved = ActivityNotification.fromJson(Map<String, dynamic>.from(jsonDecode(response.body)));
-          final index = _notifications.indexWhere((n) => n.id == notification.id);
+          final saved = ActivityNotification.fromJson(
+              Map<String, dynamic>.from(jsonDecode(response.body)));
+          final index =
+              _notifications.indexWhere((n) => n.id == notification.id);
           if (index >= 0) _notifications[index] = saved;
           await _saveToLocalStorage();
           _notificationStreamController.add(List.unmodifiable(_notifications));
         }
       }
-    } catch (e) { debugPrint('Notification save error: $e'); }
+    } catch (e) {
+      debugPrint('Notification save error: $e');
+    }
   }
 
   Future<void> markAsRead(String id) async {
@@ -223,7 +328,9 @@ class NotificationService {
   }
 
   Future<void> markAllAsRead() async {
-    for (var i = 0; i < _notifications.length; i++) { _notifications[i] = _notifications[i].copyWith(isRead: true); }
+    for (var i = 0; i < _notifications.length; i++) {
+      _notifications[i] = _notifications[i].copyWith(isRead: true);
+    }
     await _request('POST', '/notifications/read-all');
     await _publishLocal();
   }
@@ -244,11 +351,25 @@ class NotificationService {
     try {
       final headers = await _headers();
       if (!headers.containsKey('Authorization')) return;
-      final uri = Uri.parse('${ConfigService().backendUrl}$path');
-      if (method == 'PATCH') await http.patch(uri, headers: headers).timeout(const Duration(seconds: 8));
-      if (method == 'POST') await http.post(uri, headers: headers).timeout(const Duration(seconds: 8));
-      if (method == 'DELETE') await http.delete(uri, headers: headers).timeout(const Duration(seconds: 8));
-    } catch (e) { debugPrint('Notification update error: $e'); }
+      final uri = Uri.parse('${_apiService.baseUrl}$path');
+      if (method == 'PATCH') {
+        await _apiService
+            .patch(uri, headers: headers)
+            .timeout(const Duration(seconds: 8));
+      }
+      if (method == 'POST') {
+        await _apiService
+            .post(uri, headers: headers)
+            .timeout(const Duration(seconds: 8));
+      }
+      if (method == 'DELETE') {
+        await _apiService
+            .delete(uri, headers: headers)
+            .timeout(const Duration(seconds: 8));
+      }
+    } catch (e) {
+      debugPrint('Notification update error: $e');
+    }
   }
 
   Future<void> _publishLocal() async {
@@ -258,7 +379,8 @@ class NotificationService {
 
   Future<void> _saveToLocalStorage() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(await _cacheKey(), _notifications.map((n) => jsonEncode(n.toJson())).toList());
+    await prefs.setStringList(await _cacheKey(),
+        _notifications.map((n) => jsonEncode(n.toJson())).toList());
   }
 
   Future<void> _loadFromLocalStorage() async {
@@ -266,22 +388,23 @@ class NotificationService {
     final rows = prefs.getStringList(await _cacheKey()) ?? [];
     _notifications
       ..clear()
-      ..addAll(rows.map((row) => ActivityNotification.fromJson(Map<String, dynamic>.from(jsonDecode(row)))));
+      ..addAll(rows.map((row) => ActivityNotification.fromJson(
+          Map<String, dynamic>.from(jsonDecode(row)))));
     _notificationStreamController.add(List.unmodifiable(_notifications));
   }
 
   Future<String> _cacheKey() async {
-    final auth = AuthService();
-    var userId = auth.currentUserId;
-    if (userId == null) {
-      try {
-        final token = await auth.getAccessToken();
-        final parts = token?.split('.') ?? const <String>[];
-        if (parts.length == 3) {
-          final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
-          userId = payload['sub']?.toString();
-        }
-      } catch (_) {}
+    String? userId;
+    try {
+      final token = await _tokenStore.readAccessToken();
+      final parts = token?.split('.') ?? const <String>[];
+      if (parts.length == 3) {
+        final payload = jsonDecode(
+            utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+        userId = payload['sub']?.toString();
+      }
+    } catch (_) {
+      // Anonymous cache remains the safe fallback for malformed tokens.
     }
     return 'activity_notifications_${userId ?? 'anonymous'}';
   }

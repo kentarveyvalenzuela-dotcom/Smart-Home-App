@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import '../services/auth_service.dart';
+import '../auth/auth_controller.dart';
 import '../services/google_signin_2fa_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/google_signin_button.dart';
@@ -36,7 +36,8 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
-  final AuthService _authService = AuthService();
+  final GoogleSignIn2FAService _googleAuthService = GoogleSignIn2FAService();
+  final AuthController _authController = AuthController();
   StreamSubscription<GoogleSignInAccount?>? _googleAccountSubscription;
 
   @override
@@ -60,7 +61,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
 
     if (kIsWeb) {
       _googleAccountSubscription =
-          _authService.googleSignInEvents.listen((account) {
+          _googleAuthService.googleSignInEvents.listen((account) {
         if (account != null) {
           unawaited(_handleGoogleWebAccount(account));
         }
@@ -76,6 +77,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPassController.dispose();
+    _authController.dispose();
     super.dispose();
   }
 
@@ -84,7 +86,7 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
     setState(() => isLoading = true);
 
     try {
-      final result = await _authService.signInWithGoogleAccount(account);
+      final result = await _googleAuthService.signInWithGoogleAccount(account);
       if (!mounted) return;
       if (result?['success'] != true) {
         _showSnackBar(
@@ -140,19 +142,26 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
           controller: codeController,
           keyboardType: TextInputType.number,
           maxLength: 6,
-          decoration: const InputDecoration(labelText: '6-digit code sent by email'),
+          decoration:
+              const InputDecoration(labelText: '6-digit code sent by email'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, codeController.text.trim()), child: const Text('Verify')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, codeController.text.trim()),
+              child: const Text('Verify')),
         ],
       ),
     );
     codeController.dispose();
     if (code == null) return false;
-    final result = await _authService.verifyEmailAddress(email, code);
+    final result = await _authController.verifyEmail(email, code);
     if (result?['success'] != true) {
-      _showSnackBar(result?['error'] ?? 'Email verification failed', isError: true);
+      _showSnackBar(result?['error'] ?? 'Email verification failed',
+          isError: true);
       return false;
     }
     return true;
@@ -167,12 +176,12 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
       Map<String, dynamic>? result;
 
       if (isLogin) {
-        result = await _authService.signInWithEmail(
+        result = await _authController.signIn(
           _emailController.text.trim(),
           _passwordController.text,
         );
       } else {
-        result = await _authService.signUpWithEmail(
+        result = await _authController.register(
           _emailController.text.trim(),
           _passwordController.text,
           _nameController.text.trim(),
@@ -573,133 +582,156 @@ class _AuthPageState extends State<AuthPage> with TickerProviderStateMixin {
                               child: kIsWeb
                                   ? const GoogleSignInWebButton()
                                   : OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(15),
-                                  ),
-                                  side: BorderSide(color: Colors.grey.shade300),
-                                  backgroundColor: Colors.grey.shade50,
-                                ),
-                                onPressed: isLoading
-                                    ? null
-                                    : () async {
-                                        setState(() => isLoading = true);
-                                        try {
-                                          if (kIsWeb) {
-                                            // Web: redirect via backend OAuth endpoint
-                                            final result = await _authService
-                                                .signInWithGoogle();
-                                            if (result != null &&
-                                                result['success'] == true) {
-                                              // Check if 2FA is required
-                                              if (result['requires2FA'] ==
-                                                  true) {
-                                                if (!context.mounted) return;
-                                                Navigator.of(context).push(MaterialPageRoute(
-                                                  builder: (_) => GoogleSignIn2FAPage(email: result['email']?.toString()),
-                                                ));
-                                              } else {
-                                                _showSnackBar(
-                                                    'Google sign-in successful!');
-                                                // Add notification for Google sign-in
-                                                final userEmail = result['user']
-                                                        ?['email'] ??
-                                                    'Google User';
-                                                NotificationService()
-                                                    .addGoogleSignInNotification(
-                                                        userEmail);
-                                                if (context.mounted) {
-                                                  Navigator.pushReplacement(
-                                                      context,
-                                                      MaterialPageRoute(
-                                                          builder: (_) =>
-                                                              const HomeScreen()));
-                                                }
-                                              }
-                                            } else {
-                                              if (!context.mounted) return;
-                                              _showSnackBar(
-                                                  result?['error'] ??
-                                                      'Google sign-in failed',
-                                                  isError: true);
-                                            }
-                                          } else {
-                                            // Mobile: exchange the Google identity with the backend for an app session.
-                                            final mobileRes =
-                                                await GoogleSignIn2FAService()
-                                                    .signInWithGoogle();
-                                            if (!context.mounted) return;
-                                            if (mobileRes['success'] == true) {
-                                              if (mobileRes['requires2FA'] ==
-                                                  true) {
-                                                // navigate to 2FA page
-                                                Navigator.of(context).push(
-                                                    MaterialPageRoute(
-                                                        builder: (_) =>
-                                                            GoogleSignIn2FAPage(email: mobileRes['email']?.toString())));
-                                              } else {
-                                                _showSnackBar(
-                                                    'Google sign-in successful!');
-                                                // Add notification for Google sign-in
-                                                final userEmail =
-                                                    mobileRes['email'] ??
-                                                        'Google User';
-                                                NotificationService()
-                                                    .addGoogleSignInNotification(
-                                                        userEmail);
-                                                if (context.mounted) {
-                                                  Navigator.pushReplacement(
-                                                      context,
-                                                      MaterialPageRoute(
-                                                          builder: (_) =>
-                                                              const HomeScreen()));
-                                                }
-                                              }
-                                            } else {
-                                              _showSnackBar(
-                                                  mobileRes['message'] ??
-                                                      'Google sign-in failed',
-                                                  isError: true);
-                                            }
-                                          }
-                                        } catch (e) {
-                                          _showSnackBar('Error: $e',
-                                              isError: true);
-                                        } finally {
-                                          if (mounted) {
-                                            setState(() => isLoading = false);
-                                          }
-                                        }
-                                      },
-                                child: SizedBox(
-                                  width: double.infinity,
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.g_mobiledata,
-                                        color: AppColors.primaryBlueDark,
-                                        size: 24,
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 16),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(15),
+                                        ),
+                                        side: BorderSide(
+                                            color: Colors.grey.shade300),
+                                        backgroundColor: Colors.grey.shade50,
                                       ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          "Continue with Google",
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
-                                            color: AppColors.darkBg,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                      onPressed: isLoading
+                                          ? null
+                                          : () async {
+                                              setState(() => isLoading = true);
+                                              try {
+                                                if (kIsWeb) {
+                                                  // Web: redirect via backend OAuth endpoint
+                                                  final result =
+                                                      await _googleAuthService
+                                                          .signInWithGoogle();
+                                                  if (result['success'] ==
+                                                      true) {
+                                                    // Check if 2FA is required
+                                                    if (result['requires2FA'] ==
+                                                        true) {
+                                                      if (!context.mounted) {
+                                                        return;
+                                                      }
+                                                      Navigator.of(context)
+                                                          .push(
+                                                              MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            GoogleSignIn2FAPage(
+                                                                email: result[
+                                                                        'email']
+                                                                    ?.toString()),
+                                                      ));
+                                                    } else {
+                                                      _showSnackBar(
+                                                          'Google sign-in successful!');
+                                                      // Add notification for Google sign-in
+                                                      final userEmail =
+                                                          result['user']
+                                                                  ?['email'] ??
+                                                              'Google User';
+                                                      NotificationService()
+                                                          .addGoogleSignInNotification(
+                                                              userEmail);
+                                                      if (context.mounted) {
+                                                        Navigator.pushReplacement(
+                                                            context,
+                                                            MaterialPageRoute(
+                                                                builder: (_) =>
+                                                                    const HomeScreen()));
+                                                      }
+                                                    }
+                                                  } else {
+                                                    if (!context.mounted) {
+                                                      return;
+                                                    }
+                                                    _showSnackBar(
+                                                        result['error'] ??
+                                                            result['message'] ??
+                                                            'Google sign-in failed',
+                                                        isError: true);
+                                                  }
+                                                } else {
+                                                  // Mobile: exchange the Google identity with the backend for an app session.
+                                                  final mobileRes =
+                                                      await GoogleSignIn2FAService()
+                                                          .signInWithGoogle();
+                                                  if (!context.mounted) {
+                                                    return;
+                                                  }
+                                                  if (mobileRes['success'] ==
+                                                      true) {
+                                                    if (mobileRes[
+                                                            'requires2FA'] ==
+                                                        true) {
+                                                      // navigate to 2FA page
+                                                      Navigator.of(context).push(
+                                                          MaterialPageRoute(
+                                                              builder: (_) => GoogleSignIn2FAPage(
+                                                                  email: mobileRes[
+                                                                          'email']
+                                                                      ?.toString())));
+                                                    } else {
+                                                      _showSnackBar(
+                                                          'Google sign-in successful!');
+                                                      // Add notification for Google sign-in
+                                                      final userEmail =
+                                                          mobileRes['email'] ??
+                                                              'Google User';
+                                                      NotificationService()
+                                                          .addGoogleSignInNotification(
+                                                              userEmail);
+                                                      if (context.mounted) {
+                                                        Navigator.pushReplacement(
+                                                            context,
+                                                            MaterialPageRoute(
+                                                                builder: (_) =>
+                                                                    const HomeScreen()));
+                                                      }
+                                                    }
+                                                  } else {
+                                                    _showSnackBar(
+                                                        mobileRes['message'] ??
+                                                            'Google sign-in failed',
+                                                        isError: true);
+                                                  }
+                                                }
+                                              } catch (e) {
+                                                _showSnackBar('Error: $e',
+                                                    isError: true);
+                                              } finally {
+                                                if (mounted) {
+                                                  setState(
+                                                      () => isLoading = false);
+                                                }
+                                              }
+                                            },
+                                      child: SizedBox(
+                                        width: double.infinity,
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.g_mobiledata,
+                                              color: AppColors.primaryBlueDark,
+                                              size: 24,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Text(
+                                                "Continue with Google",
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.darkBg,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                                    ),
                             ),
 
                             const SizedBox(height: 25),

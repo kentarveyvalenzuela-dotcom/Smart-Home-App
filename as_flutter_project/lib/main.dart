@@ -3,9 +3,8 @@ import 'package:flutter/services.dart';
 import 'screens/auth_page.dart';
 import 'screens/monitor_page.dart';
 import 'screens/home_screen.dart';
-import 'services/mqtt_service.dart';
 import 'services/config_service.dart';
-import 'services/auth_service.dart';
+import 'auth/auth_repository.dart';
 import 'services/notification_service.dart';
 import 'services/connectivity_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -82,11 +81,9 @@ void main() async {
   debugPrint('📢 Initializing Notification Service...');
   await NotificationService().initialize();
 
-  // Initialize MQTT in background (don't block app startup)
-  debugPrint('🚀 Starting global MQTT service in background...');
-  MqttService().initialize().catchError((e) {
-    debugPrint('⚠️ MQTT initialization error (non-blocking): $e');
-  });
+  // MQTT is handled by the backend for device control.
+  // Do not open a direct Flutter -> local HiveMQ connection here.
+  debugPrint('✅ MQTT control is delegated to the backend.');
 
   // Require users to sign in before opening the dashboard.
   String initialRoute = '/login';
@@ -96,7 +93,7 @@ void main() async {
       final token = params['token'];
       if (token != null && token.isNotEmpty) {
         debugPrint('🔑 OAuth token found in URL, storing token...');
-        final ok = await AuthService().storeAccessToken(token);
+        final ok = await AuthRepository().storeAccessToken(token);
         if (ok) {
           debugPrint('✅ Token stored and user loaded, routing to /home');
           initialRoute = '/home';

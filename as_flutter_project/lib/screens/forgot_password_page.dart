@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
+import '../auth/auth_controller.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({super.key});
@@ -19,7 +19,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
 
-  final AuthService _authService = AuthService();
+  final AuthController _authController = AuthController();
 
   void _showSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -50,7 +50,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     try {
       // Call backend password reset endpoint
       final response =
-          await _authService.requestPasswordReset(_emailController.text);
+          await _authController.requestPasswordReset(_emailController.text);
 
       if (response != null && response['success']) {
         setState(() => emailSent = true);
@@ -78,6 +78,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     _resetTokenController.dispose();
+    _authController.dispose();
     super.dispose();
   }
 
@@ -101,7 +102,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
     try {
       // Call backend to confirm password reset
-      final response = await _authService.resetPassword(
+      final response = await _authController.resetPassword(
         _resetTokenController.text.trim(),
         _newPasswordController.text,
       );

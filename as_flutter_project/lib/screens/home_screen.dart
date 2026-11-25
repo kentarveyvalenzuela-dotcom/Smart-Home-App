@@ -9,9 +9,7 @@ import 'logs_page.dart';
 import 'monitor_page.dart';
 import '../services/energy_monitor_service.dart';
 import '../services/notification_service.dart';
-import '../services/sync_service.dart';
-import '../services/config_service.dart';
-import '../services/auth_service.dart';
+import '../services/device_service.dart';
 import '../main.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -23,6 +21,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final EnergyMonitorService _energyService = EnergyMonitorService();
+  final DeviceService _deviceService = DeviceService();
   int _selectedIndex = 0;
 
   late AnimationController _pulseController;
@@ -107,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Future<void> _initializeServices() async {
     await NotificationService().initialize();
-    await AuthService().ensureEnergyDeviceRegistered();
+    await _deviceService.ensureEnergyDeviceRegistered();
     await _energyService.initialize();
 
     _readingSub = _energyService.readingStream.listen((reading) {
@@ -164,22 +163,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
       } else {
         // Try to get from backend
-        final sync = SyncService(baseUrl: ConfigService().backendUrl);
         try {
-          final token = await AuthService().getAccessToken();
-          if (token != null) {
-            final devices = await sync.pullDevices(authToken: token);
-            if (devices != null && mounted) {
-              setState(() {
-                _deviceCount = devices.length;
-                _activeDevices = devices.where((d) => d['isOn'] == true).length;
-              });
-            }
+          final response = await _deviceService.listDevices();
+          if (response.success && response.data != null && mounted) {
+            final devices = response.data!;
+            setState(() {
+              _deviceCount = devices.length;
+              _activeDevices =
+                  devices.where((d) => d.status.toLowerCase() == 'on').length;
+            });
           }
         } catch (e) {
           debugPrint('Error loading device stats from backend: $e');
-        } finally {
-          sync.dispose();
         }
       }
     } catch (e) {

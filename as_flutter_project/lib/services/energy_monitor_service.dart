@@ -1,11 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-
-import 'auth_service.dart';
-import 'config_service.dart';
+import 'api_service.dart';
 
 class EnergyReading {
   final double voltage;
@@ -44,6 +39,8 @@ class EnergyMonitorService {
   factory EnergyMonitorService() => _instance;
   EnergyMonitorService._internal();
 
+  final ApiService _apiService = ApiService();
+
   final _readingStreamController = StreamController<EnergyReading>.broadcast();
   final _billStreamController = StreamController<EnergyBill>.broadcast();
   Stream<EnergyReading> get readingStream => _readingStreamController.stream;
@@ -77,20 +74,19 @@ class EnergyMonitorService {
     _billCalculationTimer = null;
   }
 
-  Future<Map<String, String>?> _authHeaders() async {
-    final headers = await AuthService().getAuthHeaders();
-    if (!headers.containsKey('Authorization')) return null;
-    headers['Content-Type'] = 'application/json';
-    return headers;
-  }
-
   Future<void> _pollLatestReading() async {
     try {
-      final headers = await _authHeaders();
-      if (headers == null) return;
-      final response = await http.get(Uri.parse('${ConfigService().backendUrl}/energy/current'), headers: headers).timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200 || response.body.trim().isEmpty || response.body.trim() == '{}') return;
-      final reading = EnergyReading.fromJson(Map<String, dynamic>.from(jsonDecode(response.body)));
+      if (!await _apiService.hasAccessToken()) return;
+      final response = await _apiService.getRequest<Map<String, dynamic>>(
+        '/energy/current',
+        parser: (data) => data is Map
+            ? Map<String, dynamic>.from(data)
+            : <String, dynamic>{},
+      );
+      if (!response.success || response.data == null || response.data!.isEmpty) {
+        return;
+      }
+      final reading = EnergyReading.fromJson(response.data!);
       if (_lastReadingTimestamp == reading.timestamp) return;
       _latestReading = reading;
       _totalEnergyKwh = reading.energy;
@@ -117,11 +113,14 @@ class EnergyMonitorService {
 
   Future<void> _loadHistoricalData() async {
     try {
-      final headers = await _authHeaders();
-      if (headers == null) return;
-      final response = await http.get(Uri.parse('${ConfigService().backendUrl}/energy/history?limit=1'), headers: headers).timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200) return;
-      final rows = jsonDecode(response.body) as List;
+      if (!await _apiService.hasAccessToken()) return;
+      final response = await _apiService.getRequest<List<dynamic>>(
+        '/energy/history',
+        queryParams: {'limit': '1'},
+        parser: (data) => data is List ? data : <dynamic>[],
+      );
+      if (!response.success || response.data == null) return;
+      final rows = response.data!;
       if (rows.isEmpty) return;
       _latestReading = EnergyReading.fromJson(Map<String, dynamic>.from(rows.first as Map));
       _totalEnergyKwh = _latestReading!.energy;
@@ -131,10 +130,13 @@ class EnergyMonitorService {
 
   Future<void> saveEnergyReading(EnergyReading reading) async {
     try {
-      final headers = await _authHeaders();
-      if (headers == null) return;
-      final response = await http.post(Uri.parse('${ConfigService().backendUrl}/energy/readings'), headers: headers, body: jsonEncode(reading.toJson())).timeout(const Duration(seconds: 8));
-      if (response.statusCode < 200 || response.statusCode >= 300) return;
+      if (!await _apiService.hasAccessToken()) return;
+      final response = await _apiService.postRequest<dynamic>(
+        '/energy/readings',
+        body: reading.toJson(),
+        parser: (data) => data,
+      );
+      if (!response.success) return;
       _latestReading = reading;
       _totalEnergyKwh = reading.energy;
       _readingStreamController.add(reading);
@@ -144,15 +146,19 @@ class EnergyMonitorService {
 
   Future<List<EnergyReading>> getEnergyHistory({DateTime? startDate, DateTime? endDate, int limit = 100}) async {
     try {
-      final headers = await _authHeaders();
-      if (headers == null) return [];
+      if (!await _apiService.hasAccessToken()) return [];
       final query = <String, String>{'limit': '$limit'};
       if (startDate != null) query['start_time'] = startDate.toIso8601String();
       if (endDate != null) query['end_time'] = endDate.toIso8601String();
-      final uri = Uri.parse('${ConfigService().backendUrl}/energy/history').replace(queryParameters: query);
-      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200) return [];
-      return (jsonDecode(response.body) as List).map((r) => EnergyReading.fromJson(Map<String, dynamic>.from(r as Map))).toList();
+      final response = await _apiService.getRequest<List<dynamic>>(
+        '/energy/history',
+        queryParams: query,
+        parser: (data) => data is List ? data : <dynamic>[],
+      );
+      if (!response.success || response.data == null) return [];
+      return response.data!
+          .map((r) => EnergyReading.fromJson(Map<String, dynamic>.from(r as Map)))
+          .toList();
     } catch (e) { debugPrint('Energy history query failed: $e'); return []; }
   }
 

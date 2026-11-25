@@ -5,8 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/sync_service.dart';
 import '../services/mqtt_service.dart';
 import '../services/config_service.dart';
-import '../services/auth_service.dart';
+import '../services/device_service.dart';
 import '../services/notification_service.dart';
+import '../auth/auth_repository.dart';
+import '../storage/preferences_token_store.dart';
+import '../storage/token_store.dart';
 import '../main.dart';
 
 class DevicePage extends StatefulWidget {
@@ -22,6 +25,9 @@ class _DevicePageState extends State<DevicePage>
   bool get wantKeepAlive => true; // Keep this page alive when switching tabs
 
   final _mqtt = MqttService();
+  final DeviceService _deviceService = DeviceService();
+  final AuthRepository _authRepository = AuthRepository();
+  final TokenStore _tokenStore = PreferencesTokenStore();
   List<Map<String, dynamic>> appliances = [];
   MqttConnectionState _connectionState = MqttConnectionState.disconnected;
   String? _errorMessage;
@@ -150,8 +156,7 @@ class _DevicePageState extends State<DevicePage>
     });
 
     try {
-      final authService = AuthService();
-      final token = await authService.getAccessToken();
+      final token = await _tokenStore.readAccessToken();
 
       if (token == null) {
         debugPrint('[SYNC] No auth token - using cached devices only');
@@ -165,7 +170,49 @@ class _DevicePageState extends State<DevicePage>
       }
 
       debugPrint('[SYNC] Fetching devices from backend...');
-      final devices = await _sync.pullDevices(authToken: token);
+      var devices = await _sync.pullDevices(authToken: token);
+
+      if (devices != null) {
+        final backendMqttIds = devices
+            .map((device) =>
+                (device['mqtt_client_id'] ?? device['device_id'] ?? '')
+                    .toString())
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        var migratedLocalDevices = false;
+
+        // Older app versions kept devices in browser storage even when backend
+        // registration failed. Retry those registrations once during sync.
+        for (final cached in List<Map<String, dynamic>>.from(appliances)) {
+          final mqttId =
+              (cached['mqtt_client_id'] ?? cached['device_id'] ?? '').toString();
+          final backendId = cached['backend_device_id']?.toString() ?? '';
+          final wasDeleted = _deletedDeviceIds.contains(mqttId) ||
+              _deletedDeviceIds.contains(backendId);
+          if (mqttId.isEmpty || backendMqttIds.contains(mqttId) || wasDeleted) {
+            continue;
+          }
+
+          final result = await _deviceService.registerScreenDevice(
+            deviceName: (cached['name'] ?? 'Device').toString(),
+            mqttClientId: mqttId,
+            pinNumber: (cached['pin'] as int?) ?? 23,
+            location: (cached['location'] ?? '').toString(),
+          );
+          if (result['success'] == true) {
+            backendMqttIds.add(mqttId);
+            migratedLocalDevices = true;
+            debugPrint('[SYNC] Registered cached device $mqttId with backend');
+          } else {
+            debugPrint(
+                '[SYNC] Cached device $mqttId was not registered: ${result['error']}');
+          }
+        }
+
+        if (migratedLocalDevices) {
+          devices = await _sync.pullDevices(authToken: token);
+        }
+      }
 
       if (devices != null && devices.isNotEmpty) {
         debugPrint('[SYNC] Got ${devices.length} devices from backend');
@@ -397,13 +444,12 @@ class _DevicePageState extends State<DevicePage>
       if (mqttDeviceId.isEmpty) {
         return false;
       }
-      final authService = AuthService();
-      final result = await authService.sendDeviceControl(
+      final result = await _deviceService.sendScreenControl(
         deviceId: (appliance['backend_device_id'] ?? mqttDeviceId).toString(),
         pinNumber: (appliance['pin'] as int?) ?? 23,
         action: action.toUpperCase(),
       );
-      return result?['success'] == true && result?['mqtt_published'] == true;
+      return result['success'] == true && result['mqtt_published'] == true;
     } catch (e) {
       debugPrint('[MQTT] Backend publish failed: $e');
       return false;
@@ -563,26 +609,35 @@ class _DevicePageState extends State<DevicePage>
                           );
 
                           // Try to register device with backend
-                          final authService = AuthService();
                           final registerResult =
-                              await authService.registerDevice(
+                              await _deviceService.registerScreenDevice(
                             deviceName: name,
                             mqttClientId: mqttId, // Use the correct MQTT ID
+                            pinNumber: selectedPin!,
                             location: '',
                           );
                           if (!mounted || !dialogContext.mounted) return;
 
-                          String? backendDeviceId;
-                          if (registerResult?['success'] == true) {
-                            backendDeviceId =
-                                registerResult?['device_id'] as String?;
-                            debugPrint(
-                                '[OK] Device registered with backend: $backendDeviceId');
-                          } else {
-                            debugPrint(
-                                '[WARN] Backend registration failed: ${registerResult?['error']}');
-                            // Continue anyway with local device
+                          if (registerResult['success'] != true) {
+                            ScaffoldMessenger.of(context)
+                              ..hideCurrentSnackBar()
+                              ..showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Could not register "$name": '
+                                    '${registerResult['error'] ?? 'Unknown backend error'}',
+                                  ),
+                                  backgroundColor: AppColors.error,
+                                ),
+                              );
+                            return;
                           }
+
+                          String? backendDeviceId;
+                          backendDeviceId =
+                              registerResult['device_id']?.toString();
+                          debugPrint(
+                              '[OK] Device registered with backend: $backendDeviceId');
 
                           final newDevice = {
                             'device_id':
@@ -612,13 +667,8 @@ class _DevicePageState extends State<DevicePage>
                             ScaffoldMessenger.of(context).hideCurrentSnackBar();
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text(registerResult?['success'] == true
-                                    ? 'Device "$name" registered!'
-                                    : 'Device "$name" added locally'),
-                                backgroundColor:
-                                    registerResult?['success'] == true
-                                        ? Colors.green
-                                        : Colors.orange,
+                                content: Text('Device "$name" registered!'),
+                                backgroundColor: Colors.green,
                               ),
                             );
                           }
@@ -669,7 +719,7 @@ class _DevicePageState extends State<DevicePage>
   Future<void> _deleteAppliance(int index) async {
     final deviceId = appliances[index]['device_id'] as String? ?? '';
     final backendDeviceId =
-        appliances[index]['backend_device_id'] as String? ?? deviceId;
+        appliances[index]['backend_device_id']?.toString() ?? deviceId;
     final deviceName = appliances[index]['name'] as String? ?? 'Device';
 
     final confirmed = await showDialog<bool>(
@@ -702,9 +752,8 @@ class _DevicePageState extends State<DevicePage>
       }
 
       // 1. Delete from backend FIRST
-      final authService = AuthService();
       final deleteResult =
-          await authService.deleteDevice(deviceId: backendDeviceId);
+          await _deviceService.deleteScreenDevice(backendDeviceId);
 
       debugPrint('[DELETE] Backend result: $deleteResult');
 
@@ -787,10 +836,9 @@ class _DevicePageState extends State<DevicePage>
 
   Future<String?> _getCurrentUserId() async {
     try {
-      final authService = AuthService();
-      final token = await authService.getAccessToken();
+      final token = await _tokenStore.readAccessToken();
       if (token != null) {
-        final user = await authService.getCurrentUserProfile();
+        final user = await _authRepository.getCurrentUserProfile();
         return user?['id']?.toString();
       }
     } catch (e) {

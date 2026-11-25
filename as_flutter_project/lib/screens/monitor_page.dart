@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/energy_monitor_service.dart';
-import '../services/auth_service.dart';
+import '../services/device_service.dart';
+import '../services/sensor_service.dart';
 
 class MonitorPage extends StatefulWidget {
   final bool showAppBar;
@@ -17,6 +18,8 @@ class MonitorPage extends StatefulWidget {
 class _MonitorPageState extends State<MonitorPage>
     with AutomaticKeepAliveClientMixin {
   final EnergyMonitorService _energyService = EnergyMonitorService();
+  final DeviceService _deviceService = DeviceService();
+  final SensorService _sensorService = SensorService();
   StreamSubscription<EnergyReading>? _readingSubscription;
   EnergyReading? _reading;
   List<EnergyReading> _history = const [];
@@ -39,13 +42,16 @@ class _MonitorPageState extends State<MonitorPage>
 
   Future<void> _loadHistory() async {
     final history = await _energyService.getEnergyHistory(limit: 20);
-    final registration = await AuthService().ensureEnergyDeviceRegistered();
-    final sensors = await AuthService().getLatestSensorReadings();
+    final registration = await _deviceService.ensureEnergyDeviceRegistered();
+    final sensorResponse = await _sensorService.getAllReadings(limit: 100);
+    final sensors =
+        sensorResponse.data?.map((reading) => reading.toJson()).toList() ??
+            <Map<String, dynamic>>[];
     if (!mounted) return;
     setState(() {
       _history = history;
-      _registeredDeviceId = registration?['device_id']?.toString() ??
-          registration?['device']?['id']?.toString();
+      _registeredDeviceId = registration['device_id']?.toString() ??
+          registration['device']?['id']?.toString();
       _sensorHistory = sensors;
       _loadingHistory = false;
     });

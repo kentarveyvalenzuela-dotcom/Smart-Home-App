@@ -33,7 +33,7 @@ class MqttService {
   MqttConnectionState get currentConnectionState => _connectionState;
   String? get currentError => _errorMessage;
 
-  int _selectedBrokerIndex = 0;
+  int _selectedBrokerIndex = 1;
 
   final List<Map<String, dynamic>> _brokerOptions = [
     {
@@ -43,31 +43,18 @@ class MqttService {
       'isWebSocket': false,
     },
     {
+      'label': 'Local HiveMQ (WebSocket 8001)',
+      'host': '127.0.0.1',
+      'wsUrl': 'ws://127.0.0.1:8001/mqtt',
+      'port': 8001,
+      'isWebSocket': true,
+    },
+    {
       'label': 'broker.emqx.io (WebSocket 8083)',
       'host': 'broker.emqx.io',
       'wsUrl': 'ws://broker.emqx.io:8083/mqtt',
       'port': 8083,
       'isWebSocket': true,
-    },
-    {
-      'label': 'broker.emqx.io (Secure WebSocket 8084)',
-      'host': 'broker.emqx.io',
-      'wsUrl': 'wss://broker.emqx.io:8084/mqtt',
-      'port': 8084,
-      'isWebSocket': true,
-    },
-    {
-      'label': 'test.mosquitto.org (WebSocket 8080)',
-      'host': 'test.mosquitto.org',
-      'wsUrl': 'ws://test.mosquitto.org:8080/mqtt',
-      'port': 8080,
-      'isWebSocket': true,
-    },
-    {
-      'label': 'test.mosquitto.org (TCP 1883)',
-      'host': 'test.mosquitto.org',
-      'port': 1883,
-      'isWebSocket': false,
     },
   ];
 
@@ -84,7 +71,7 @@ class MqttService {
   Future<void> _loadBrokerPreference() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _selectedBrokerIndex = prefs.getInt('mqtt_broker_index') ?? 0;
+      _selectedBrokerIndex = prefs.getInt('mqtt_broker_index') ?? 1;
     } catch (e) {
       debugPrint('Failed to load broker preference: $e');
     }

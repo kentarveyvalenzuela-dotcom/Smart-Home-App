@@ -11,6 +11,7 @@ class Device {
   final String? topic;
   final DateTime createdAt;
   final DateTime? lastSeen;
+  final String accessRole;
 
   Device({
     required this.id,
@@ -22,6 +23,7 @@ class Device {
     this.topic,
     required this.createdAt,
     this.lastSeen,
+    this.accessRole = 'owner',
   });
 
   factory Device.fromJson(Map<String, dynamic> json) {
@@ -38,6 +40,7 @@ class Device {
           : DateTime.now(),
       lastSeen:
           json['last_seen'] != null ? DateTime.parse(json['last_seen']) : null,
+      accessRole: json['access_role']?.toString() ?? 'owner',
     );
   }
 
@@ -67,6 +70,24 @@ class DeviceControlResponse {
   }
 }
 
+class DeviceShare {
+  final int userId;
+  final String email;
+  final String name;
+  final String role;
+  final DateTime? createdAt;
+
+  DeviceShare({required this.userId, required this.email, required this.name, required this.role, this.createdAt});
+
+  factory DeviceShare.fromJson(Map<String, dynamic> json) => DeviceShare(
+        userId: int.tryParse(json['user_id'].toString()) ?? 0,
+        email: json['email']?.toString() ?? '',
+        name: json['name']?.toString() ?? '',
+        role: json['role']?.toString() ?? 'viewer',
+        createdAt: json['created_at'] == null ? null : DateTime.tryParse(json['created_at'].toString()),
+      );
+}
+
 /// Device Service - Manages all device-related API calls
 class DeviceService extends ApiService {
   static final DeviceService _instance = DeviceService._internal();
@@ -76,6 +97,109 @@ class DeviceService extends ApiService {
   }
 
   DeviceService._internal();
+
+  /// Test-only constructor; production callers continue using the singleton.
+  DeviceService.forTesting({super.client, super.baseUrl});
+
+  /// Compatibility methods preserve the legacy device screen contracts while
+  /// routing requests through the domain service.
+  Future<Map<String, dynamic>> registerScreenDevice({
+    required String deviceName,
+    required String mqttClientId,
+    required int pinNumber,
+    String? location,
+    String deviceType = 'esp32',
+  }) async {
+    final response = await postRequest<Map<String, dynamic>>(
+      '/devices/register',
+      body: {
+        'name': deviceName,
+        'type': deviceType,
+        'pin': pinNumber,
+        'topic': 'home/device/$mqttClientId',
+        'mqtt_client_id': mqttClientId,
+        'location': location ?? '',
+      },
+      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : {},
+    );
+    if (!response.success) {
+      return {'success': false, 'error': response.error};
+    }
+
+    final data = response.data ?? <String, dynamic>{};
+    final backendDeviceId =
+        data['id']?.toString() ?? data['device_id']?.toString();
+    if (backendDeviceId == null || backendDeviceId.isEmpty) {
+      return {
+        'success': false,
+        'error': 'Backend registration returned no device ID',
+      };
+    }
+
+    return {
+      ...data,
+      'success': true,
+      'id': backendDeviceId,
+      'device_id': backendDeviceId,
+      'backend_device_id': backendDeviceId,
+      'mqtt_client_id': data['mqtt_client_id']?.toString() ?? mqttClientId,
+    };
+  }
+
+  /// Ensures the authenticated user has an Energy Monitor device.
+  /// The response shape remains compatible with the legacy AuthService method.
+  Future<Map<String, dynamic>> ensureEnergyDeviceRegistered() async {
+    final response = await postRequest<Map<String, dynamic>>(
+      '/devices/register-energy',
+      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : {},
+    );
+    if (response.success) {
+      return {
+        'success': true,
+        'device': response.data?['device'],
+      };
+    }
+    return {'success': false, 'error': response.error};
+  }
+
+  Future<Map<String, dynamic>> sendScreenControl({
+    required String deviceId,
+    required int pinNumber,
+    required String action,
+  }) async {
+    final response = await postRequest<Map<String, dynamic>>(
+      '/devices/control',
+      body: {
+        'device_id': deviceId,
+        'pin_number': pinNumber,
+        'action': action,
+      },
+      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : {},
+    );
+    return response.success
+        ? {
+            'success': true,
+            ...?response.data,
+            'mqtt_published': response.data?['mqtt_published'] ?? false,
+          }
+        : {'success': false, 'error': response.error};
+  }
+
+  Future<Map<String, dynamic>> deleteScreenDevice(String deviceId) async {
+    final response = await deleteRequest<Map<String, dynamic>>(
+      '/devices/$deviceId',
+      parser: (data) => data is Map ? Map<String, dynamic>.from(data) : {},
+    );
+    if (response.success || response.statusCode == 404) {
+      return {
+        'success': true,
+        'message': response.statusCode == 404
+            ? 'Device already deleted or not found'
+            : response.data?['message'] ?? 'Device deleted',
+      };
+    }
+    return {'success': false, 'error': response.error};
+  }
 
   /// List all user's devices
   Future<ApiResponse<List<Device>>> listDevices() async {
@@ -200,6 +324,25 @@ class DeviceService extends ApiService {
   /// Sync device state from backend (useful after device changes)
   Future<ApiResponse<Device>> syncDevice(String deviceId) async {
     return getDevice(deviceId);
+  }
+
+  Future<ApiResponse<DeviceShare>> shareDevice({required String deviceId, required String email, String role = 'viewer'}) async {
+    return postRequest('/devices/$deviceId/shares', body: {'email': email, 'role': role}, parser: (data) {
+      final user = data is Map ? data['user'] : null;
+      if (user is! Map) throw Exception('Invalid share response');
+      return DeviceShare.fromJson({...Map<String, dynamic>.from(user), 'role': data['role']});
+    });
+  }
+
+  Future<ApiResponse<List<DeviceShare>>> listDeviceShares(String deviceId) async {
+    return getRequest('/devices/$deviceId/shares', parser: (data) {
+      if (data is! List) return <DeviceShare>[];
+      return data.map((item) => DeviceShare.fromJson(Map<String, dynamic>.from(item as Map))).toList();
+    });
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> revokeDeviceShare(String deviceId, int userId) async {
+    return deleteRequest('/devices/$deviceId/shares/$userId', parser: (data) => data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});
   }
 
   /// Get device activity logs

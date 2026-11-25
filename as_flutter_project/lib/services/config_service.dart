@@ -57,17 +57,23 @@ class ConfigService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedBackendUrl = prefs.getString(_backendKey);
+      const definedBackendUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
       // Migrate the old localhost default so Android emulators reach the host.
       final savedUrlIsOldLocalDefault =
           savedBackendUrl == 'http://localhost:8000' ||
               savedBackendUrl == 'http://127.0.0.1:8000';
       _backendUrl = _normalizeBackendUrl(
-        savedBackendUrl == null ||
-                (defaultTargetPlatform == TargetPlatform.android &&
-                    savedUrlIsOldLocalDefault)
-            ? _getDefaultBackendUrl()
-            : savedBackendUrl,
+        definedBackendUrl.isNotEmpty
+            ? definedBackendUrl
+            : savedBackendUrl == null ||
+                    (defaultTargetPlatform == TargetPlatform.android &&
+                        savedUrlIsOldLocalDefault)
+                ? _getDefaultBackendUrl()
+                : savedBackendUrl,
       );
+      if (definedBackendUrl.isNotEmpty && savedBackendUrl != _backendUrl) {
+        await prefs.setString(_backendKey, _backendUrl);
+      }
       if (savedUrlIsOldLocalDefault &&
           defaultTargetPlatform == TargetPlatform.android) {
         await prefs.setString(_backendKey, _backendUrl);
